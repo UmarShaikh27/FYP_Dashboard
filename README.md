@@ -1,28 +1,5 @@
 # PhysioSync — Setup Guide
 
-## Folder Structure
-```
-physio-dashboard/
-├── index.html
-├── package.json
-├── vite.config.js
-└── src/
-    ├── main.jsx              ← React entry point
-    ├── App.jsx               ← Auth routing (therapist / patient)
-    ├── index.css             ← Global styles
-    ├── firebase/
-    │   ├── config.js         ← 🔴 PUT YOUR FIREBASE KEYS HERE
-    │   ├── auth.js           ← Login / logout helpers
-    │   └── db.js             ← Firestore read/write helpers
-    └── components/
-        ├── Login.jsx             ← Shared login screen
-        ├── TherapistDashboard.jsx← Therapist main view
-        ├── ExerciseSession.jsx   ← Session form + Unity launcher
-        ├── ProgressTable.jsx     ← Records table + XLSX export
-        └── PatientDashboard.jsx  ← Patient progress view
-```
-
----
 
 ## Step 1 — Install Node.js
 Download from https://nodejs.org (LTS version)
