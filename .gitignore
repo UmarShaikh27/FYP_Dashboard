@@ -1,6 +1,5 @@
 # Node
 node_modules/
-README.md
 
 # Logs
 logs
@@ -64,3 +63,6 @@ Thumbs.db
 # firebase/.runtimeconfig.json
 # .firebase/
 # firebase/*.key.json
+
+# Ignore repository README (root)
+/README.md
