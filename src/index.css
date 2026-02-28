@@ -1,0 +1,269 @@
+/* index.css — PhysioSync Design System */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+/* ─── Variables ─────────────────────────────── */
+:root {
+  --bg:        #0a0d12;
+  --bg2:       #111520;
+  --bg3:       #1a2030;
+  --border:    #232a3a;
+  --accent:    #00e5c3;
+  --accent2:   #0090ff;
+  --danger:    #ff4b6e;
+  --text:      #e8edf5;
+  --text-muted:#6b7a96;
+  --radius:    12px;
+  --sidebar-w: 230px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+h1, h2, h3 { font-family: 'Syne', sans-serif; font-weight: 700; line-height: 1.2; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.4rem; }
+h3 { font-size: 1.1rem; }
+
+.accent { color: var(--accent); }
+.muted  { color: var(--text-muted); }
+
+/* ─── Splash / Spinner ───────────────────────── */
+.splash {
+  display: flex; align-items: center; justify-content: center;
+  height: 100vh; background: var(--bg);
+}
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Buttons ────────────────────────────────── */
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+  border: none; border-radius: 8px;
+  padding: 10px 20px; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: opacity 0.2s, transform 0.15s;
+}
+.btn-primary:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  background: var(--bg3); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 20px; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: background 0.2s;
+}
+.btn-secondary:hover { background: var(--border); }
+
+.btn-logout {
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 16px; font-size: 13px; cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.btn-logout:hover { color: var(--danger); border-color: var(--danger); }
+
+.btn-launch {
+  background: linear-gradient(135deg, #0090ff, #00e5c3);
+  color: #000; border: none; border-radius: 8px;
+  padding: 12px 24px; font-size: 15px; font-weight: 700;
+  cursor: pointer; letter-spacing: 0.3px;
+  transition: opacity 0.2s, transform 0.15s;
+}
+.btn-launch:hover { opacity: 0.88; transform: translateY(-2px); }
+
+.btn-export {
+  background: var(--bg3); color: var(--accent);
+  border: 1px solid var(--accent); border-radius: 8px;
+  padding: 10px 18px; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: background 0.2s;
+}
+.btn-export:hover:not(:disabled) { background: rgba(0,229,195,0.1); }
+.btn-export:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ─── Login ──────────────────────────────────── */
+.login-bg {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 30% 60%, #0a2a2a 0%, var(--bg) 65%);
+}
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 48px 44px;
+  width: 420px; max-width: 95vw;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  animation: fadeUp 0.5s ease;
+}
+@keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:none; } }
+
+.login-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Syne', sans-serif; font-size: 1.6rem; font-weight: 800;
+  margin-bottom: 6px;
+}
+.logo-icon { color: var(--accent); font-size: 1.4rem; }
+.login-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 32px; }
+
+.login-form { display: flex; flex-direction: column; gap: 18px; }
+.login-error { color: var(--danger); font-size: 13px; }
+.login-hint  { color: var(--text-muted); font-size: 12px; margin-top: 20px; text-align: center; }
+
+/* ─── Form Fields ────────────────────────────── */
+.field-group {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.field-group label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+.field-group input,
+.field-group select,
+.field-group textarea {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  padding: 10px 14px; font-size: 14px; font-family: inherit;
+  transition: border-color 0.2s;
+  outline: none;
+}
+.field-group input:focus,
+.field-group select:focus,
+.field-group textarea:focus { border-color: var(--accent); }
+.field-group select option { background: var(--bg2); }
+
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+/* ─── Dashboard Layout ───────────────────────── */
+.dashboard { display: flex; min-height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-w); min-height: 100vh;
+  background: var(--bg2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  padding: 28px 16px; position: fixed; top: 0; left: 0;
+}
+.sidebar-logo {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.1rem;
+  color: var(--text); padding: 0 8px; margin-bottom: 36px;
+}
+
+.sidebar-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.sidebar-nav button {
+  background: transparent; border: none; color: var(--text-muted);
+  text-align: left; padding: 11px 14px; border-radius: 8px;
+  font-size: 14px; font-family: inherit; cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.sidebar-nav button:hover { background: var(--bg3); color: var(--text); }
+.sidebar-nav button.active { background: rgba(0,229,195,0.1); color: var(--accent); font-weight: 600; }
+
+.sidebar-footer { border-top: 1px solid var(--border); padding-top: 16px; }
+.sidebar-user { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; padding: 0 4px; }
+
+/* Main */
+.main-content {
+  margin-left: var(--sidebar-w); flex: 1;
+  padding: 48px 52px; max-width: 1100px;
+  animation: fadeUp 0.4s ease;
+}
+.subtitle { color: var(--text-muted); margin-top: 6px; margin-bottom: 32px; }
+
+/* ─── Home / Patient Grid ────────────────────── */
+.patient-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+.patient-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.patient-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+
+.patient-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  color: #000; font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.3rem;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px;
+}
+.patient-card h3 { margin-bottom: 4px; }
+.patient-card p  { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+.card-actions    { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ─── Session Form ───────────────────────────── */
+.session-view { max-width: 680px; }
+.session-form { display: flex; flex-direction: column; gap: 20px; margin-top: 8px; }
+.session-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.launch-notice {
+  background: rgba(0,229,195,0.07); border: 1px solid rgba(0,229,195,0.3);
+  border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--accent);
+}
+
+/* ─── Records ────────────────────────────────── */
+.records-view { }
+.records-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 28px;
+}
+.records-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.records-actions select {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); padding: 10px 14px;
+  font-size: 14px; font-family: inherit; outline: none;
+}
+
+.table-wrapper { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
+.records-table {
+  width: 100%; border-collapse: collapse; font-size: 14px;
+}
+.records-table thead { background: var(--bg3); }
+.records-table th {
+  text-align: left; padding: 14px 18px;
+  font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.records-table td {
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.records-table tbody tr:last-child td { border-bottom: none; }
+.records-table tbody tr:hover { background: var(--bg3); }
+
+.exercise-badge {
+  background: rgba(0,144,255,0.12); color: var(--accent2);
+  border-radius: 6px; padding: 3px 10px; font-size: 13px; font-weight: 500;
+}
+.notes-cell { color: var(--text-muted); max-width: 240px; }
+
+/* ─── Stats ──────────────────────────────────── */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px;
+}
+.stat-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px 20px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.stat-number { font-family: 'Syne', sans-serif; font-size: 2.2rem; font-weight: 800; color: var(--accent); }
+.stat-label  { font-size: 13px; color: var(--text-muted); }
+
+/* ─── States ─────────────────────────────────── */
+.empty-state, .loading-state {
+  color: var(--text-muted); padding: 48px; text-align: center;
+  border: 1px dashed var(--border); border-radius: var(--radius);
+}
