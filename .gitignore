@@ -61,7 +61,7 @@ Thumbs.db
 # firebase-adminsdk-*.json
 # firebase/*.secret.json
 # firebase/.runtimeconfig.json
-# .firebase/
+.firebase/
 # firebase/*.key.json
 
 # Ignore repository README (root)
