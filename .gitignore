@@ -56,16 +56,15 @@ Thumbs.db
 # ESLint cache
 .eslintcache
 
-# Firebase secrets (ignore service account and local firebase files)
-# firebase/serviceAccountKey.json
-# firebase-adminsdk-*.json
-# firebase/*.secret.json
-# firebase/.runtimeconfig.json
-# .firebase/
-# firebase/*.key.json
-
 # Ignore src/firebase to keep credentials out of repo
 src/firebase/
 
 # Ignore repository README (root)
 /README.md
+
+# disected_mmDTW.py
+# mocap_script.py
+# server.py
+localServer.js
+/templates
+/output_excel

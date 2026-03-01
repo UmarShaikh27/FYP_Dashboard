@@ -1,5 +1,28 @@
 # PhysioSync — Setup Guide
 
+## Folder Structure
+```
+physio-dashboard/
+├── index.html
+├── package.json
+├── vite.config.js
+└── src/
+    ├── main.jsx              ← React entry point
+    ├── App.jsx               ← Auth routing (therapist / patient)
+    ├── index.css             ← Global styles
+    ├── firebase/
+    │   ├── config.js         ← 🔴 PUT YOUR FIREBASE KEYS HERE
+    │   ├── auth.js           ← Login / logout helpers
+    │   └── db.js             ← Firestore read/write helpers
+    └── components/
+        ├── Login.jsx             ← Shared login screen
+        ├── TherapistDashboard.jsx← Therapist main view
+        ├── ExerciseSession.jsx   ← Session form + Unity launcher
+        ├── ProgressTable.jsx     ← Records table + XLSX export
+        └── PatientDashboard.jsx  ← Patient progress view
+```
+
+---
 
 ## Step 1 — Install Node.js
 Download from https://nodejs.org (LTS version)
@@ -40,6 +63,31 @@ Firestore needs a `users` collection. For each user add a document:
 ```
 
 To get the UID: Firebase Console → Authentication → Users → copy the User UID
+
+## Step 4b — Set up the Local Python Backend
+The analysis pipeline runs via a local Flask server on the therapist's machine.
+
+**Install Python dependencies:**
+```bash
+pip install flask flask-cors numpy pandas tslearn openpyxl matplotlib mediapipe opencv-python scipy pyrealsense2
+```
+
+**Place your files in the same folder as server.py:**
+```
+physio-dashboard/
+├── server.py               ← Flask backend
+├── disected_mmDTW.py       ← Your DTW script (already here)
+├── mocap_script.py         ← Your mocap script (already here)
+├── templates/              ← PUT your template .xlsx files here
+│   └── right_wrist_template_10_trails_demo.xlsx
+└── output_excel/           ← Recorded files appear here automatically
+```
+
+**Run the backend:**
+```bash
+python server.py
+```
+It starts on http://localhost:5050 — keep this terminal open while using the dashboard.
 
 ## Step 5 — Run locally
 ```bash

@@ -1,26 +1,32 @@
 // components/TherapistDashboard.jsx
 import { useEffect, useState } from "react";
 import { logoutUser } from "../firebase/auth";
-import { getAllPatients, getPatientSessions, saveSession } from "../firebase/db";
+import { getAllPatients, getPatientSessions, getPatientAnalyses } from "../firebase/db";
 import ExerciseSession from "./ExerciseSession";
 import ProgressTable from "./ProgressTable";
+import PipelineRunner from "./PipelineRunner";
 
 export default function TherapistDashboard({ user, onLogout }) {
-  const [patients, setPatients]           = useState([]);
+  const [patients, setPatients]               = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
-  const [sessions, setSessions]           = useState([]);
-  const [view, setView]                   = useState("home"); // home | session | records
-  const [loading, setLoading]             = useState(false);
+  const [sessions, setSessions]               = useState([]);
+  const [analyses, setAnalyses]               = useState([]);
+  const [view, setView]                       = useState("home");
+  const [loading, setLoading]                 = useState(false);
 
   useEffect(() => {
     getAllPatients().then(setPatients);
   }, []);
 
-  const loadSessions = async (patient) => {
+  const loadRecords = async (patient) => {
     setSelectedPatient(patient);
     setLoading(true);
-    const data = await getPatientSessions(patient.id);
-    setSessions(data);
+    const [sess, anal] = await Promise.all([
+      getPatientSessions(patient.id),
+      getPatientAnalyses(patient.id),
+    ]);
+    setSessions(sess);
+    setAnalyses(anal);
     setLoading(false);
     setView("records");
   };
@@ -32,16 +38,16 @@ export default function TherapistDashboard({ user, onLogout }) {
 
   return (
     <div className="dashboard">
-      {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-logo">
           <span className="logo-icon">✦</span>
           <span>PhysioSync</span>
         </div>
         <nav className="sidebar-nav">
-          <button className={view === "home"    ? "active" : ""} onClick={() => setView("home")}>🏠 Home</button>
-          <button className={view === "session" ? "active" : ""} onClick={() => setView("session")}>🎮 New Session</button>
-          <button className={view === "records" ? "active" : ""} onClick={() => setView("records")}>📊 Records</button>
+          <button className={view === "home"     ? "active" : ""} onClick={() => setView("home")}>🏠 Home</button>
+          <button className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")}>🔬 Run Analysis</button>
+          <button className={view === "session"  ? "active" : ""} onClick={() => setView("session")}>🎮 Manual Session</button>
+          <button className={view === "records"  ? "active" : ""} onClick={() => setView("records")}>📊 Records</button>
         </nav>
         <div className="sidebar-footer">
           <p className="sidebar-user">Dr. {user.name}</p>
@@ -49,12 +55,11 @@ export default function TherapistDashboard({ user, onLogout }) {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="main-content">
         {view === "home" && (
           <div className="home-view">
             <h1>Welcome back, <span className="accent">Dr. {user.name}</span></h1>
-            <p className="subtitle">Select a patient to begin a session or review records.</p>
+            <p className="subtitle">Select a patient to run an analysis or review records.</p>
             <div className="patient-grid">
               {patients.map((p) => (
                 <div key={p.id} className="patient-card">
@@ -62,10 +67,10 @@ export default function TherapistDashboard({ user, onLogout }) {
                   <h3>{p.name}</h3>
                   <p>{p.email}</p>
                   <div className="card-actions">
-                    <button className="btn-primary" onClick={() => { setSelectedPatient(p); setView("session"); }}>
-                      Start Session
+                    <button className="btn-primary" onClick={() => { setSelectedPatient(p); setView("pipeline"); }}>
+                      Run Analysis
                     </button>
-                    <button className="btn-secondary" onClick={() => loadSessions(p)}>
+                    <button className="btn-secondary" onClick={() => loadRecords(p)}>
                       View Records
                     </button>
                   </div>
@@ -76,6 +81,15 @@ export default function TherapistDashboard({ user, onLogout }) {
               )}
             </div>
           </div>
+        )}
+
+        {view === "pipeline" && (
+          <PipelineRunner
+            patient={selectedPatient}
+            patients={patients}
+            therapistId={user.uid}
+            onSaved={() => setView("home")}
+          />
         )}
 
         {view === "session" && (
@@ -91,9 +105,10 @@ export default function TherapistDashboard({ user, onLogout }) {
           <ProgressTable
             patient={selectedPatient}
             sessions={sessions}
+            analyses={analyses}
             loading={loading}
             patients={patients}
-            onSelectPatient={loadSessions}
+            onSelectPatient={loadRecords}
           />
         )}
       </main>
