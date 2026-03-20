@@ -31,6 +31,15 @@ export default function TherapistDashboard({ user, onLogout }) {
     setView("records");
   };
 
+  // Remove deleted records from local state immediately — no reload needed
+  const handleAnalysisDeleted = (id) => {
+    setAnalyses((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleSessionDeleted = (id) => {
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+  };
+
   const handleLogout = async () => {
     await logoutUser();
     onLogout();
@@ -109,6 +118,8 @@ export default function TherapistDashboard({ user, onLogout }) {
             loading={loading}
             patients={patients}
             onSelectPatient={loadRecords}
+            onAnalysisDeleted={handleAnalysisDeleted}
+            onSessionDeleted={handleSessionDeleted}
           />
         )}
       </main>

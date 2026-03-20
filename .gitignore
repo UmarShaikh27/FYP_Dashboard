@@ -60,7 +60,7 @@ Thumbs.db
 src/firebase/
 
 # Ignore repository README (root)
-/README.md
+README.md
 
 # disected_mmDTW.py
 # mocap_script.py
@@ -68,3 +68,6 @@ src/firebase/
 localServer.js
 /templates
 /output_excel
+/models
+
+firebase-key.json

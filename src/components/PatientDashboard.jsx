@@ -102,6 +102,7 @@ export default function PatientDashboard({ user, onLogout }) {
                         <div className="analysis-grades">
                           <span className="mini-grade">ROM: <b>{a.avg_rom_grade ? Math.round(a.avg_rom_grade) : "—"}/10</b></span>
                           <span className="mini-grade">Shape: <b>{a.shape_grade ?? "—"}/10</b></span>
+                          {a.sparc_grades && <span className="mini-grade">Smooth: <b>{a.sparc_grades.total}/10</b></span>}
                         </div>
                         <button className="expand-btn">{expandedId === a.id ? "▲" : "▼"}</button>
                       </div>

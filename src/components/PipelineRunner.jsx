@@ -87,11 +87,15 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
 
   // Recording
   const [recordStatus, setRecordStatus] = useState(null); // { state, message, output_file }
+  const [recordingFile, setRecordingFile] = useState(null); // filename saved by shoulder_origin.py
+  const [showLogs, setShowLogs]       = useState(false); // For recording logs
+  const [fullLogs, setFullLogs]       = useState(""); // Full logs from server
   const pollRef = useRef(null);
 
   // Analysis
   const [analyzing, setAnalyzing]     = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const [analysisDebugInfo, setAnalysisDebugInfo] = useState(""); // For debugging
   const [result, setResult]           = useState(null);
 
   // Saving
@@ -121,11 +125,16 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         if (status.state === "done" || status.state === "error") {
           clearInterval(pollRef.current);
           if (status.state === "done") {
+            // Store the recording filename so it gets saved with the result
+            setRecordingFile(status.output_file);
             // Refresh file list and jump to analysis
             const d = await listPatientFiles();
             setPatientFiles(d.files);
             setStep(STEP.ANALYZING);
-            runDTW(status.output_file);
+            setAnalysisDebugInfo("Starting DTW analysis...");
+            // Await the DTW analysis to ensure it completes before rendering
+            // (error handling is done inside runDTW)
+            await runDTW(status.output_file);
           }
         }
       } catch (_) {}
@@ -146,13 +155,37 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   const runDTW = async (patientFile) => {
     setAnalyzing(true);
     setAnalysisError("");
+    setAnalysisDebugInfo("Calling DTW analysis endpoint...");
+    
     try {
-      const res = await runAnalysis(patientFile, template, sensitivity, shapeTol);
+      // Add a timeout so we don't hang forever
+      const analysisPromise = runAnalysis(patientFile, template, sensitivity, shapeTol);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Analysis took too long (>30s) — server may be unresponsive")), 30000)
+      );
+      
+      const res = await Promise.race([analysisPromise, timeoutPromise]);
+      
+      // Verify response has all required fields
+      if (!res || typeof res !== 'object') {
+        throw new Error("Invalid response from server: not an object");
+      }
+      
+      if (res.error) {
+        throw new Error(res.error);
+      }
+      
+      console.log("DTW analysis successful:", res);
+      setAnalysisDebugInfo("Analysis complete, displaying results...");
       setResult(res);
       setStep(STEP.RESULTS);
     } catch (e) {
-      setAnalysisError(e.message);
+      console.error("DTW analysis error:", e);
+      const errorMsg = e.message || "Unknown error during analysis";
+      setAnalysisError(errorMsg);
+      setAnalysisDebugInfo("Error: " + errorMsg);
       setStep(STEP.CONFIGURE); // fall back so they can retry
+      throw e; // Re-throw so the calling code knows it failed
     } finally {
       setAnalyzing(false);
     }
@@ -163,8 +196,15 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   const handleManualAnalyze = async () => {
     if (!manualFile) return alert("Select a recorded file.");
     if (!template)  return alert("Select a template.");
+    setRecordingFile(manualFile);
     setStep(STEP.ANALYZING);
-    await runDTW(manualFile);
+    setAnalysisDebugInfo("Starting DTW analysis on selected file...");
+    try {
+      await runDTW(manualFile);
+    } catch (err) {
+      console.error("Error in manual analysis:", err);
+      // Error handling is already done in runDTW, which sets the error state
+    }
   };
 
   // ── Save to Firestore ─────────────────────────────────────────────────────
@@ -179,6 +219,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         exerciseName,
         templateFile:   result.template_file,
         patientFile:    result.patient_file,
+        recordingFile:  recordingFile || result.patient_file,
         score:          result.score,
         global_rmse:    result.global_rmse,
         axis_rmse:      result.axis_rmse,
@@ -187,8 +228,11 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         rom_axis_grades: result.rom_axis_grades,
         avg_rom_grade:  result.avg_rom_grade,
         shape_grade:    result.shape_grade,
+        sparc:          result.sparc,
+        sparc_grades:   result.sparc_grades,
         report_text:    result.report_text,
         plot_image_b64: result.plot_image_b64,
+        excel_file_b64: result.excel_file_b64,  // Base64-encoded Excel file
       });
       setSaved(true);
       setTimeout(() => onSaved?.(), 1500);
@@ -350,25 +394,48 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   if (step === STEP.RECORDING) {
     const isDone  = recordStatus?.state === "done";
     const isError = recordStatus?.state === "error";
+    const isGrace = recordStatus?.state === "grace";
+
+    const fetchLogs = async () => {
+      try {
+        const data = await fetch("http://localhost:5050/mocap/logs").then(r => r.json());
+        setFullLogs(data.full_stderr || data.stdout || "No logs available.");
+        setShowLogs(true);
+      } catch { setFullLogs("Could not fetch logs from server."); setShowLogs(true); }
+    };
+
     return (
       <div className="pipeline-view">
-        <h1>Recording Motion…</h1>
+        <h1>{isError ? "Recording Failed" : isGrace ? "Get Ready…" : isDone ? "Recording Complete" : "Recording Motion…"}</h1>
         <div className="recording-card">
           <div className={`rec-indicator ${isDone ? "done" : isError ? "error" : "active"}`}>
-            {isDone ? "✓" : isError ? "✗" : "●"}
+            {isDone ? "✓" : isError ? "✗" : isGrace ? "⏱" : "●"}
           </div>
           <p className="rec-message">{recordStatus?.message || "Initializing camera…"}</p>
+
+          {isError && (
+            <div className="error-box" style={{ marginTop: 16 }}>
+              <pre className="report-pre small" style={{ textAlign: "left", color: "#ff4b6e", maxHeight: 300, overflowY: "auto" }}>
+                {recordStatus.message}
+              </pre>
+              <div style={{ display: "flex", gap: 10, marginTop: 12, justifyContent: "center", flexWrap: "wrap" }}>
+                <button className="btn-secondary" onClick={fetchLogs}>📋 View Full Logs</button>
+                <button className="btn-primary" onClick={() => setStep(STEP.CONFIGURE)}>← Back to Configure</button>
+              </div>
+              {showLogs && (
+                <pre className="report-pre small" style={{ marginTop: 12, maxHeight: 400, overflowY: "auto", color: "var(--text-muted)" }}>
+                  {fullLogs}
+                </pre>
+              )}
+            </div>
+          )}
+
           {!isDone && !isError && (
             <button className="btn-secondary" style={{ marginTop: 16 }} onClick={async () => {
               await stopRecording();
               setStep(STEP.CONFIGURE);
             }}>
               Stop Early
-            </button>
-          )}
-          {isError && (
-            <button className="btn-primary" style={{ marginTop: 16 }} onClick={() => setStep(STEP.CONFIGURE)}>
-              Back to Configure
             </button>
           )}
         </div>
@@ -385,6 +452,25 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
           <div className="spinner" style={{ margin: "0 auto 20px" }} />
           <p>Comparing patient motion to expert template using multivariate DTW.</p>
           <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>This may take 5–15 seconds.</p>
+          
+          {analysisDebugInfo && (
+            <p className="muted" style={{ marginTop: 12, fontSize: 11, fontFamily: "monospace", color: "#0090ff" }}>
+              {analysisDebugInfo}
+            </p>
+          )}
+          
+          {analysisError && (
+            <div className="error-box" style={{ marginTop: 16 }}>
+              <p style={{ color: "#ff4b6e", fontWeight: "bold" }}>⚠ Analysis Error:</p>
+              <pre className="report-pre small" style={{ textAlign: "left", color: "#ff4b6e", maxHeight: 200, overflowY: "auto" }}>
+                {analysisError}
+              </pre>
+              <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>Try again or use the "Analyze Existing File" option.</p>
+              <button className="btn-primary" style={{ marginTop: 12 }} onClick={() => setStep(STEP.CONFIGURE)}>
+                ← Back to Configure
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -404,6 +490,30 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             <button className="btn-secondary" onClick={() => { setResult(null); setStep(STEP.CONFIGURE); }}>
               ← New Analysis
             </button>
+            {r.excel_file_b64 && (
+              <button 
+                className="btn-secondary"
+                onClick={() => {
+                  // Convert base64 to blob and trigger download
+                  const binaryString = atob(r.excel_file_b64);
+                  const bytes = new Uint8Array(binaryString.length);
+                  for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                  }
+                  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${exerciseName}_${selectedPatient?.name || 'motion'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                }}
+              >
+                📥 Download Excel
+              </button>
+            )}
             <button className="btn-primary" onClick={handleSave} disabled={saving || saved}>
               {saved ? "✓ Saved to Records" : saving ? "Saving…" : "💾 Save to Patient Records"}
             </button>
@@ -426,6 +536,12 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
               <GradePill label="ROM X-axis"  value={r.rom_axis_grades[0]} />
               <GradePill label="ROM Y-axis"  value={r.rom_axis_grades[1]} />
               <GradePill label="ROM Z-axis"  value={r.rom_axis_grades[2]} />
+              {r.sparc_grades && <>
+                <div className="grade-section-divider">Smoothness (SPARC)</div>
+                <GradePill label="Overall"    value={r.sparc_grades.total} />
+                <GradePill label="Choppiness" value={r.sparc_grades.choppiness} />
+                <GradePill label="Tremor"     value={r.sparc_grades.tremor} />
+              </>}
             </div>
           </div>
 
@@ -439,6 +555,12 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
                 <tr><td>RMSE Y</td><td className="val">{r.axis_rmse.y} m</td></tr>
                 <tr><td>RMSE Z</td><td className="val">{r.axis_rmse.z} m</td></tr>
                 <tr><td>ROM Ratio</td><td className="val">{(r.rom_ratio * 100).toFixed(1)}%</td></tr>
+                {r.sparc && <>
+                  <tr><td colSpan={2} style={{paddingTop:10,color:"var(--text-muted)",fontSize:12}}>SPARC Metrics</td></tr>
+                  <tr><td>Overall SPARC</td><td className="val">{r.sparc.total}</td></tr>
+                  <tr><td>Vel. RMSE</td><td className="val">{r.sparc.velocity_rmse} m/s</td></tr>
+                  <tr><td>Peak Velocity</td><td className="val">{r.sparc.peak_velocity} m/s</td></tr>
+                </>}
               </tbody>
             </table>
           </div>
