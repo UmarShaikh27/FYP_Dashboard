@@ -438,6 +438,25 @@ h3 { font-size: 1.1rem; }
   background: rgba(255, 75, 110, 0.06);
 }
 
+/* ─── Download button ────────────────────────── */
+.btn-download {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  white-space: nowrap;
+}
+.btn-download:hover {
+  color: #0090ff;
+  border-color: #0090ff;
+  background: rgba(0, 144, 255, 0.06);
+}
+
 /* ─── Delete confirmation inline ─────────────── */
 .delete-confirm {
   display: flex;
@@ -481,6 +500,7 @@ h3 { font-size: 1.1rem; }
 .card-delete-area {
   display: flex;
   align-items: center;
+  gap: 12px;
   padding-left: 12px;
   flex-shrink: 0;
 }

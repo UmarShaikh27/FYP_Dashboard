@@ -201,7 +201,7 @@ export default function ProgressTable({
                         </button>
                       </div>
 
-                      <div className="card-delete-area" onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <div className="card-delete-area" onClick={(e) => e.stopPropagation()}>
                         {a.excel_file_b64 && (
                           <button 
                             className="btn-download"
