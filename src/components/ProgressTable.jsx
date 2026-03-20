@@ -2,6 +2,7 @@
 import * as XLSX from "xlsx";
 import { useState } from "react";
 import { deleteAnalysisResult, deleteSession } from "../firebase/db";
+import PatientProgress from "./PatientProgress";
 
 function scoreColor(score) {
   if (score >= 80) return "#00e5c3";
@@ -143,6 +144,12 @@ export default function ProgressTable({
           onClick={() => setActiveTab("sessions")}
         >
           Manual Sessions {sessions.length > 0 && <span className="tab-badge">{sessions.length}</span>}
+        </button>
+        <button
+          className={activeTab === "progress" ? "active" : ""}
+          onClick={() => setActiveTab("progress")}
+        >
+          Progress Report {analyses.length >= 3 && <span className="tab-badge">Ready</span>}
         </button>
       </div>
 
@@ -319,6 +326,13 @@ export default function ProgressTable({
                 </table>
               </div>
             )
+          )}
+          {/* Progress Report Tab */}
+          {activeTab === "progress" && (
+            <PatientProgress
+              analyses={analyses}
+              patientName={patient?.name ?? "Patient"}
+            />
           )}
         </>
       )}

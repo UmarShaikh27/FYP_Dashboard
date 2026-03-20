@@ -546,3 +546,133 @@ h3 { font-size: 1.1rem; }
   font-family: 'Courier New', monospace;
   word-break: break-all;
 }
+
+/* ─── Patient Progress ───────────────────────── */
+.prog-container {
+  padding-top: 8px;
+}
+.prog-header {
+  margin-bottom: 24px;
+}
+.prog-header h2 {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.prog-subheading {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Summary stats row */
+.prog-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+@media (max-width: 860px) {
+  .prog-stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+.prog-stat-box {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prog-stat-value {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.prog-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.prog-stat-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Chart cards */
+.prog-chart-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 20px 12px;
+  margin-bottom: 16px;
+}
+.prog-chart-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 860px) {
+  .prog-chart-grid { grid-template-columns: 1fr; }
+}
+
+/* Section heading inside chart card */
+.prog-section-heading {
+  margin-bottom: 14px;
+}
+.prog-section-heading h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.prog-section-heading p {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Trend labels row */
+.prog-trend-row {
+  display: flex;
+  gap: 20px;
+  font-size: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+/* Insufficient data */
+.prog-insufficient {
+  background: var(--bg2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.prog-insufficient strong {
+  color: var(--text);
+}
+
+/* Download button */
+.btn-download {
+  background: transparent;
+  color: var(--accent2);
+  border: 1px solid var(--accent2);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.btn-download:hover {
+  background: rgba(0, 144, 255, 0.1);
+}
