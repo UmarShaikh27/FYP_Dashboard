@@ -504,7 +504,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
                   const url = window.URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = `${exerciseName}_${selectedPatient?.name || 'motion'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                  a.download = r.patient_file;  // Use the original timestamped filename
                   document.body.appendChild(a);
                   a.click();
                   window.URL.revokeObjectURL(url);

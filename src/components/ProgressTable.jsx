@@ -93,8 +93,7 @@ export default function ProgressTable({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const date = analysis.createdAt?.toDate?.().toISOString().slice(0, 10) || "motion";
-      a.download = `${analysis.exerciseName}_${patient?.name || 'patient'}_${date}.xlsx`;
+      a.download = analysis.patientFile;  // Use the original timestamped filename
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -202,7 +201,7 @@ export default function ProgressTable({
                         </button>
                       </div>
 
-                      <div className="card-delete-area" onClick={(e) => e.stopPropagation()}>
+                      <div className="card-delete-area" onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                         {a.excel_file_b64 && (
                           <button 
                             className="btn-download"
