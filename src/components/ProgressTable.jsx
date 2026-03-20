@@ -1,6 +1,6 @@
 // components/ProgressTable.jsx
 import * as XLSX from "xlsx";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { deleteAnalysisResult, deleteSession } from "../firebase/db";
 import PatientProgress from "./PatientProgress";
 
@@ -35,6 +35,26 @@ export default function ProgressTable({
   const [deletingId, setDeletingId]   = useState(null);
   const [deleteType, setDeleteType]   = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const [scrollToId, setScrollToId]   = useState(null);  // id to scroll to after tab switch
+  const cardRefs = useRef({});  // map of analysis id → DOM element
+
+  // When tab switches to "analyses" and scrollToId is set, scroll to that card
+  useEffect(() => {
+    if (activeTab === "analyses" && scrollToId) {
+      const el = cardRefs.current[scrollToId];
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setScrollToId(null);
+    }
+  }, [activeTab, scrollToId]);
+
+  // Called when a chart dot is clicked in PatientProgress
+  const handleSelectSession = (id) => {
+    setExpandedId(id);      // expand that card
+    setScrollToId(id);      // trigger scroll after tab switch
+    setActiveTab("analyses"); // switch to the analyses tab
+  };
 
   const exportXLSX = () => {
     const rows = analyses.map((a) => ({
@@ -166,7 +186,7 @@ export default function ProgressTable({
             ) : (
               <div className="analysis-list">
                 {analyses.map((a) => (
-                  <div key={a.id} className="analysis-card">
+                  <div key={a.id} className="analysis-card" ref={(el) => { cardRefs.current[a.id] = el; }}>
 
                     <div className="analysis-card-header">
                       <div
@@ -332,6 +352,7 @@ export default function ProgressTable({
             <PatientProgress
               analyses={analyses}
               patientName={patient?.name ?? "Patient"}
+              onSelectSession={handleSelectSession}
             />
           )}
         </>

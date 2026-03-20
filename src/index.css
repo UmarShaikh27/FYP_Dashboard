@@ -676,3 +676,11 @@ h3 { font-size: 1.1rem; }
 .btn-download:hover {
   background: rgba(0, 144, 255, 0.1);
 }
+
+/* ─── Progress chart click hint ─────────────── */
+.prog-click-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-style: italic;
+}
