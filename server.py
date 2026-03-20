@@ -94,19 +94,22 @@ def excel_file_to_base64(excel_file_path):
 
 def build_comparison_figure(ref_centered, pat_centered, score, report_text, sparc_metrics=None):
     """
-    Dark-themed 4-panel plot:
-      top-left  : 3D trajectory (mean-centred)
-      top-right : Therapist report text
-      bottom-left : Velocity profile (time domain)  — only if sparc_metrics provided
-      bottom-right: Spectral complexity (frequency domain) — only if sparc_metrics provided
+    Dark-themed plot:
+      Top: 3D trajectory (mean-centred)
+      Bottom: SPARC plots (velocity + spectrum) — only if sparc_metrics provided
+    
+    Note: Therapist report is displayed separately in the UI, not on the plot.
     """
     has_sparc = sparc_metrics is not None
     nrows = 2 if has_sparc else 1
 
-    fig = plt.figure(figsize=(16, 10 if has_sparc else 7), facecolor="#0a0d12")
+    fig = plt.figure(figsize=(14, 10 if has_sparc else 6), facecolor="#0a0d12")
 
-    # ── Row 1: 3D trajectory + report text ───────────────────────────────────
-    ax1 = fig.add_subplot(nrows, 2, 1, projection="3d")
+    # ── Row 1: 3D trajectory ──────────────────────────────────────────────────
+    if has_sparc:
+        ax1 = fig.add_subplot(2, 2, 1, projection="3d")
+    else:
+        ax1 = fig.add_subplot(1, 1, 1, projection="3d")
     ax1.set_facecolor("#111520")
     ax1.plot(ref_centered[:, 0], ref_centered[:, 1], ref_centered[:, 2],
              color="#0059ff", linestyle="--", linewidth=1.5, label="Expert (centred)")
@@ -118,14 +121,6 @@ def build_comparison_figure(ref_centered, pat_centered, score, report_text, spar
     ax1.tick_params(colors="#6b7a96")
     for spine in ax1.spines.values():
         spine.set_edgecolor("#232a3a")
-
-    ax2 = fig.add_subplot(nrows, 2, 2)
-    ax2.set_facecolor("#111520")
-    ax2.axis("off")
-    ax2.text(0.04, 0.98, "THERAPIST ANALYTICS", color="#00e5c3",
-             fontsize=10, fontweight="bold", va="top", transform=ax2.transAxes)
-    ax2.text(0.04, 0.90, report_text, color="#e8edf5",
-             fontsize=8, family="monospace", va="top", transform=ax2.transAxes, linespacing=1.5)
 
     # ── Row 2: SPARC plots (velocity + spectrum) ──────────────────────────────
     if has_sparc:
@@ -139,7 +134,7 @@ def build_comparison_figure(ref_centered, pat_centered, score, report_text, spar
         pat_freq, pat_spec = analyzer.get_spectrum_for_plot(pat_speed)
 
         # Velocity profile
-        ax3 = fig.add_subplot(nrows, 2, 3)
+        ax3 = fig.add_subplot(2, 2, 3)
         ax3.set_facecolor("#111520")
         pat_speed_rs = sp_resample(pat_speed, len(ref_speed))
         ax3.plot(ref_speed,    color="#6b7a96", linestyle="--", linewidth=1.2, label="Expert Speed")
@@ -156,7 +151,7 @@ def build_comparison_figure(ref_centered, pat_centered, score, report_text, spar
         ax3.grid(True, alpha=0.15, color="#232a3a")
 
         # Spectral complexity
-        ax4 = fig.add_subplot(nrows, 2, 4)
+        ax4 = fig.add_subplot(2, 2, 4)
         ax4.set_facecolor("#111520")
         mask_r = ref_freq <= 25; mask_p = pat_freq <= 25
         ax4.plot(ref_freq[mask_r], ref_spec[mask_r], color="#6b7a96", linestyle="--", linewidth=1.2, label="Expert Spectrum")

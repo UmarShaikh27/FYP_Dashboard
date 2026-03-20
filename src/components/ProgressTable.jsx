@@ -36,6 +36,7 @@ export default function ProgressTable({
   const [deleteType, setDeleteType]   = useState(null);
   const [deleteError, setDeleteError] = useState("");
   const [scrollToId, setScrollToId]   = useState(null);  // id to scroll to after tab switch
+  const [selectedPlotImage, setSelectedPlotImage] = useState(null);  // for modal view
   const cardRefs = useRef({});  // map of analysis id → DOM element
 
   // When tab switches to "analyses" and scrollToId is set, scroll to that card
@@ -273,12 +274,15 @@ export default function ProgressTable({
                             <pre className="report-pre small">{a.report_text}</pre>
                           </div>
                           <div>
-                            <h4>Analysis Plot</h4>
+                            <h4>Motion Capture Plot</h4>
                             {a.plot_image_b64 ? (
                               <img
                                 src={`data:image/png;base64,${a.plot_image_b64}`}
                                 alt="DTW plot"
-                                className="result-plot small-plot"
+                                className="result-plot full-plot"
+                                onClick={() => setSelectedPlotImage(`data:image/png;base64,${a.plot_image_b64}`)}
+                                style={{ cursor: "pointer" }}
+                                title="Click to view full size"
                               />
                             ) : (
                               <p className="muted">No plot saved.</p>
@@ -356,6 +360,16 @@ export default function ProgressTable({
             />
           )}
         </>
+      )}
+
+      {/* Modal for full-size plot image */}
+      {selectedPlotImage && (
+        <div className="plot-modal" onClick={() => setSelectedPlotImage(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setSelectedPlotImage(null)}>✕</button>
+            <img src={selectedPlotImage} alt="Full plot" className="full-plot-image" />
+          </div>
+        </div>
       )}
     </div>
   );

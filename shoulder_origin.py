@@ -71,6 +71,14 @@ class MotionCaptureApp:
         # Data
         self.motion_data        = []
         self.recording_start_time = 0
+        self.session_timestamp  = None  # Timestamp for matching Excel and video filenames
+        
+        # Video recording
+        self.video_writer = None
+        self.video_output_dir = os.path.join(os.path.dirname(__file__), "videos")
+        self.frame_width = 0
+        self.frame_height = 0
+        self.fps = 30
 
         # Pose landmark indices (MediaPipe)
         self.POSE_LANDMARKS = {
@@ -204,6 +212,62 @@ class MotionCaptureApp:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
+    def _start_video_recording(self, frame):
+        """Initialize video writer with the frame dimensions."""
+        try:
+            if frame is None:
+                return False
+            self.frame_height, self.frame_width = frame.shape[:2]
+            
+            # Create videos folder if it doesn't exist
+            os.makedirs(self.video_output_dir, exist_ok=True)
+            
+            # Generate timestamped filename (same format as Excel)
+            self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            video_filename = f"pose_{self.camera_source}_{self.session_timestamp}.mp4"
+            video_path = os.path.join(self.video_output_dir, video_filename)
+            
+            # Use H.264 codec for MP4
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.video_writer = cv2.VideoWriter(
+                video_path,
+                fourcc,
+                self.fps,
+                (self.frame_width, self.frame_height)
+            )
+            
+            if not self.video_writer.isOpened():
+                print(f"[Video] Failed to open VideoWriter for {video_path}")
+                return False
+            
+            print(f"[Video] Recording started: {video_filename}")
+            return True
+        except Exception as e:
+            print(f"[Video] Error starting recording: {e}")
+            return False
+
+    def _write_frame_to_video(self, frame):
+        """Write a frame to the video file."""
+        if self.video_writer and self.video_writer.isOpened():
+            try:
+                self.video_writer.write(frame)
+            except Exception as e:
+                print(f"[Video] Error writing frame: {e}")
+
+    def _stop_video_recording(self):
+        """Release video writer and finalize the video file."""
+        if self.video_writer:
+            try:
+                self.video_writer.release()
+                print(f"[Video] Video recording stopped and saved")
+                return True
+            except Exception as e:
+                print(f"[Video] Error stopping video: {e}")
+                return False
+        return False
+
+    # ── Main loop ─────────────────────────────────────────────────────────────
+
     def run(self):
         # Initialize hardware
         if self.camera_source == 'realsense':
@@ -272,6 +336,9 @@ class MotionCaptureApp:
                                 row[f'{name}_z'] = lm.z
 
                         self.motion_data.append(row)
+                        
+                        # Write frame to video
+                        self._write_frame_to_video(image_bgr)
 
                         elapsed   = time.time() - self.recording_start_time
                         remaining = max(0, self.duration - elapsed)
@@ -281,6 +348,7 @@ class MotionCaptureApp:
 
                         if elapsed >= self.duration:
                             state = "FINISHED"
+                            self._stop_video_recording()  # Stop video recording
 
                 # UI overlays
                 if state == "IDLE":
@@ -297,6 +365,7 @@ class MotionCaptureApp:
                     if remaining_grace <= 0:
                         state = "RECORDING"
                         self.recording_start_time = time.time()
+                        self._start_video_recording(image_bgr)  # Start video recording
                         print("Recording started.")
 
                 elif state == "FINISHED":
@@ -346,6 +415,9 @@ class MotionCaptureApp:
                 print(f"[cleanup] landmarker.close() warning: {e}")
 
             # ── Save MUST happen last and must not be inside a bare except ───
+            # Ensure video recording is stopped before saving
+            self._stop_video_recording()
+            
             if self.motion_data:
                 self._save(self.output_dir)
                 # Explicit clean exit so server.py gets returncode 0
@@ -393,8 +465,11 @@ class MotionCaptureApp:
 
         # ── Save ──────────────────────────────────────────────────────────────
         os.makedirs(output_dir, exist_ok=True)
-        # Add timestamp to filename for uniqueness (format: YYYYMMDD_HHMMSS_mmm)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Last 3 digits = milliseconds
+        # Use session_timestamp if available (set during recording start), otherwise generate new one
+        if self.session_timestamp:
+            timestamp = self.session_timestamp
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Last 3 digits = milliseconds
         # filename  = f"{self.selected_arm}_pose_{self.camera_source}_{self.trail}_{timestamp}.xlsx"
         filename  = f"pose_{self.camera_source}_{timestamp}.xlsx"
         full_path = os.path.join(output_dir, filename)
