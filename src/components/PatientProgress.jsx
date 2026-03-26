@@ -217,8 +217,9 @@ export default function PatientProgress({ analyses, patientName, onSelectSession
             <Line
               type="monotone" dataKey="score"
               stroke={C.score} strokeWidth={2.5}
-              dot={(props) => (
+              dot={({ key, ...props }) => (
                 <ClickableDot
+                  key={key}
                   {...props}
                   fill={C.score}
                   onClick={() => onSelectSession?.(props.payload?.id)}
@@ -265,18 +266,18 @@ export default function PatientProgress({ analyses, patientName, onSelectSession
             />
             <Line type="monotone" dataKey="rom"
               stroke={C.rom} strokeWidth={2}
-              dot={(props) => <ClickableDot {...props} fill={C.rom} onClick={() => onSelectSession?.(props.payload?.id)} />}
+              dot={({ key, ...props }) => <ClickableDot key={key} {...props} fill={C.rom} onClick={() => onSelectSession?.(props.payload?.id)} />}
               activeDot={{ r: 6, style: { cursor: "pointer" } }} name="ROM"
             />
             <Line type="monotone" dataKey="shape"
               stroke={C.shape} strokeWidth={2}
-              dot={(props) => <ClickableDot {...props} fill={C.shape} onClick={() => onSelectSession?.(props.payload?.id)} />}
+              dot={({ key, ...props }) => <ClickableDot key={key} {...props} fill={C.shape} onClick={() => onSelectSession?.(props.payload?.id)} />}
               activeDot={{ r: 6, style: { cursor: "pointer" } }} name="Shape"
             />
             {smoothGrades.length > 0 && (
               <Line type="monotone" dataKey="smooth"
                 stroke={C.smooth} strokeWidth={2}
-                dot={(props) => <ClickableDot {...props} fill={C.smooth} onClick={() => onSelectSession?.(props.payload?.id)} />}
+                dot={({ key, ...props }) => <ClickableDot key={key} {...props} fill={C.smooth} onClick={() => onSelectSession?.(props.payload?.id)} />}
                 activeDot={{ r: 6, style: { cursor: "pointer" } }} name="Smoothness"
               />
             )}
@@ -311,17 +312,17 @@ export default function PatientProgress({ analyses, patientName, onSelectSession
               <ReferenceLine y={GRADE_PASS} stroke={C.muted} strokeDasharray="4 4" />
               <Line type="monotone" dataKey="abduction"
                 stroke={C.abduction} strokeWidth={2}
-                dot={(props) => <ClickableDot {...props} fill={C.abduction} onClick={() => onSelectSession?.(props.payload?.id)} />}
+                dot={({ key, ...props }) => <ClickableDot key={key} {...props} fill={C.abduction} onClick={() => onSelectSession?.(props.payload?.id)} />}
                 activeDot={{ r: 6, style: { cursor: "pointer" } }} name="Abduction (X)"
               />
               <Line type="monotone" dataKey="flexion"
                 stroke={C.flexion} strokeWidth={2}
-                dot={(props) => <ClickableDot {...props} fill={C.flexion} onClick={() => onSelectSession?.(props.payload?.id)} />}
+                dot={({ key, ...props }) => <ClickableDot key={key} {...props} fill={C.flexion} onClick={() => onSelectSession?.(props.payload?.id)} />}
                 activeDot={{ r: 6, style: { cursor: "pointer" } }} name="Flexion (Y)"
               />
               <Line type="monotone" dataKey="rotation"
                 stroke={C.rotation} strokeWidth={2}
-                dot={(props) => <ClickableDot {...props} fill={C.rotation} onClick={() => onSelectSession?.(props.payload?.id)} />}
+                dot={({ key, ...props }) => <ClickableDot key={key} {...props} fill={C.rotation} onClick={() => onSelectSession?.(props.payload?.id)} />}
                 activeDot={{ r: 6, style: { cursor: "pointer" } }} name="Rotation (Z)"
               />
               <Legend wrapperStyle={{ fontSize: 12, color: C.muted, paddingTop: 8 }} />

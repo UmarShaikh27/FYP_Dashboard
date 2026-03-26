@@ -3,8 +3,9 @@ server.py - PhysioSync Local Backend
 =====================================
 Pipeline order:
   1. shoulder_origin.py  - records Shoulder/Elbow/Wrist, saves normalized Excel
-  2. scale_template()    - scales normalized template to this patient's body (runs inside server)
-  3. disected_mmDTW.py   - DTW comparison of scaled template vs patient Wrist_x/y/z
+  2. filter_data.py      - 3-stage filter on wrist_normalized_x/y/z
+  3. scale_template.py   - scales normalized template to patient body coordinates
+  4. score.py            - DTW + SPARC scoring on filtered patient vs scaled template
 
 Install:
   pip install flask flask-cors numpy pandas tslearn openpyxl matplotlib mediapipe opencv-python pyrealsense2
@@ -30,15 +31,17 @@ from mpl_toolkits.mplot3d import Axes3D
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
-from disected_mmDTW import (
+# Import from the new unified pipeline modules
+from score import (
     calculate_mdtw_with_sensitivity,
     calculate_rom_metrics,
     get_rom_grade,
     get_shape_grade,
-    get_sparc_grade,
     generate_therapist_report,
     MovementAnalyzer,
 )
+from scale_template import scale as scale_template_file
+from filter_data import filter_motion
 
 app = Flask(__name__)
 CORS(app)
@@ -172,153 +175,6 @@ def build_comparison_figure(ref_centered, pat_centered, score, report_text, spar
 
     fig.tight_layout(pad=2.5)
     return figure_to_base64(fig)
-
-
-# ── Template scaling (from scaling_template.ipynb) ────────────────────────────
-
-def extract_patient_scalars(patient_df):
-    """
-    Reads arm length scalars and mean shoulder position from patient Excel.
-    shoulder_origin.py saves these as constant columns automatically.
-    Falls back to computing them from joint positions if columns are absent.
-    """
-    if 'total_arm_length' in patient_df.columns:
-        # shoulder_origin.py already computed and saved these
-        total_arm_length = patient_df['total_arm_length'].iloc[0]
-        upper_arm_length = patient_df['upper_arm_length'].iloc[0]
-        forearm_length   = patient_df['forearm_length'].iloc[0]
-    else:
-        # Fallback: compute from raw joint positions
-        per_frame_upper = np.sqrt(
-            (patient_df['Elbow_x'] - patient_df['Shoulder_x'])**2 +
-            (patient_df['Elbow_y'] - patient_df['Shoulder_y'])**2 +
-            (patient_df['Elbow_z'] - patient_df['Shoulder_z'])**2
-        )
-        per_frame_forearm = np.sqrt(
-            (patient_df['Wrist_x'] - patient_df['Elbow_x'])**2 +
-            (patient_df['Wrist_y'] - patient_df['Elbow_y'])**2 +
-            (patient_df['Wrist_z'] - patient_df['Elbow_z'])**2
-        )
-        upper_arm_length = per_frame_upper.mean()
-        forearm_length   = per_frame_forearm.mean()
-        total_arm_length = upper_arm_length + forearm_length
-
-    return {
-        'upper_arm_length': upper_arm_length,
-        'forearm_length':   forearm_length,
-        'total_arm_length': total_arm_length,
-        'shoulder_x':       patient_df['Shoulder_x'].mean(),
-        'shoulder_y':       patient_df['Shoulder_y'].mean(),
-        'shoulder_z':       patient_df['Shoulder_z'].mean(),
-    }
-
-
-def scale_template(template_df, scalars):
-    """
-    Converts a normalized template to the patient's global coordinates.
-
-    Formula (from scaling_template.ipynb):
-        wrist_scaled = (wrist_normalized * total_arm_length) + shoulder_mean
-
-    Accepts either column naming convention:
-      - wrist_normalized_x/y/z  (DBA pipeline output)
-      - Wrist_x/y/z             (already-normalized template with standard column names)
-
-    The result is in the same metric space as the patient's raw Wrist_x/y/z,
-    so DTW comparison is body-size agnostic.
-    """
-    arm = scalars['total_arm_length']
-    df  = template_df.copy()
-
-    # Detect which column naming convention the template uses
-    if 'wrist_normalized_x' in df.columns:
-        src_x, src_y, src_z = 'wrist_normalized_x', 'wrist_normalized_y', 'wrist_normalized_z'
-    else:
-        # Wrist_x/y/z are normalized (confirmed by user) — same formula applies
-        src_x, src_y, src_z = 'Wrist_x', 'Wrist_y', 'Wrist_z'
-
-    df['wrist_scaled_x'] = (df[src_x] * arm) + scalars['shoulder_x']
-    df['wrist_scaled_y'] = (df[src_y] * arm) + scalars['shoulder_y']
-    df['wrist_scaled_z'] = (df[src_z] * arm) + scalars['shoulder_z']
-    return df
-
-def load_patient_wrist(patient_df):
-    """
-    Extracts the patient's raw wrist trajectory as a numpy array.
-    shoulder_origin.py saves columns as: Wrist_x, Wrist_y, Wrist_z
-    """
-    cols = ['Wrist_x', 'Wrist_y', 'Wrist_z']
-    missing = [c for c in cols if c not in patient_df.columns]
-    if missing:
-        raise KeyError(f"Patient file missing columns: {missing}. "
-                       f"Make sure it was recorded with shoulder_origin.py")
-    return patient_df[cols].dropna().values
-
-
-def load_scaled_template_wrist(template_df, scalars=None):
-    """
-    Loads and scales the reference wrist trajectory from a template file.
-
-    Priority order:
-      1. wrist_normalized_x/y/z  → scale using patient scalars
-      2. Wrist_x/y/z             → treat as normalized, scale using patient scalars
-      3. wrist_scaled_x/y/z      → already scaled externally, use directly
-      4. x/y/z                   → generic fallback, use directly
-
-    Cases 1 and 2 require scalars to be provided (not None).
-    Cases 3 and 4 use the values directly.
-    """
-    norm_cols    = ['wrist_normalized_x', 'wrist_normalized_y', 'wrist_normalized_z']
-    raw_cols     = ['Wrist_x',            'Wrist_y',            'Wrist_z']
-    scaled_cols  = ['wrist_scaled_x',     'wrist_scaled_y',     'wrist_scaled_z']
-    generic_cols = ['x',                  'y',                  'z']
-
-    if all(c in template_df.columns for c in norm_cols):
-        # wrist_normalized_x/y/z — scale to patient body coordinates
-        if scalars is None:
-            raise ValueError("scalars must be provided to scale a normalized template.")
-        scaled_df = scale_template(template_df, scalars)
-        return scaled_df[scaled_cols].dropna().values
-
-    elif all(c in template_df.columns for c in raw_cols):
-        # Wrist_x/y/z confirmed as normalized by user — scale to patient body coordinates
-        if scalars is None:
-            raise ValueError("scalars must be provided to scale a Wrist_x/y/z normalized template.")
-        scaled_df = scale_template(template_df, scalars)
-        return scaled_df[scaled_cols].dropna().values
-
-    elif all(c in template_df.columns for c in scaled_cols):
-        # Already scaled externally (e.g. by scaling_template.ipynb)
-        return template_df[scaled_cols].dropna().values
-
-    elif all(c in template_df.columns for c in generic_cols):
-        # Generic fallback
-        return template_df[generic_cols].dropna().values
-
-    else:
-        found = list(template_df.columns)
-        raise KeyError(
-            f"Template file columns not recognised. Found: {found}\n"
-            "Expected one of:\n"
-            "  - wrist_normalized_x/y/z  (normalized DBA template)\n"
-            "  - Wrist_x/y/z             (normalized template with standard column names)\n"
-            "  - wrist_scaled_x/y/z      (pre-scaled template)\n"
-            "  - x/y/z                   (generic)"
-        )
-
-
-# ── Routes ────────────────────────────────────────────────────────────────────
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok", "version": "2.0"})
-
-
-@app.route("/templates", methods=["GET"])
-def list_templates():
-    os.makedirs(TEMPLATES_FOLDER, exist_ok=True)
-    files = [f for f in os.listdir(TEMPLATES_FOLDER) if f.endswith(".xlsx")]
-    return jsonify({"templates": files})
 
 
 @app.route("/mocap/start", methods=["POST"])
@@ -492,106 +348,127 @@ def analyze():
         return jsonify({"error": f"Template file not found: {template_file}"}), 404
 
     try:
-        patient_df  = pd.read_excel(pat_path)
-        template_df = pd.read_excel(ref_path)
+        # shoulder_origin.py already produces all normalized columns
+        # (wrist_normalized_x/y/z, Shoulder_x/y/z, total_arm_length, etc.)
+        # so it is equivalent to capture.py + normalize.py in the friend's pipeline.
+        # pat_path is therefore treated as the "normalized" file for scaling.
 
-        # ── Detect template type ──────────────────────────────────────────────
-        # Scaling applies when the template contains normalized wrist coordinates.
-        # This includes both:
-        #   - wrist_normalized_x/y/z  (DBA pipeline naming)
-        #   - Wrist_x/y/z             (confirmed normalized by user — same formula applies)
-        # In both cases we need patient scalars (arm length + shoulder position)
-        # to convert the normalized path into the patient's metric space.
-        norm_cols_dba = ['wrist_normalized_x', 'wrist_normalized_y', 'wrist_normalized_z']
-        norm_cols_std = ['Wrist_x', 'Wrist_y', 'Wrist_z']
-        scaled_cols   = ['wrist_scaled_x', 'wrist_scaled_y', 'wrist_scaled_z']
+        # ── Temp working directory for intermediate files ──────────────────────
+        temp_dir = os.path.join(OUTPUT_FOLDER, "_temp_pipeline")
+        os.makedirs(temp_dir, exist_ok=True)
 
-        template_is_normalized = (
-            all(c in template_df.columns for c in norm_cols_dba) or
-            all(c in template_df.columns for c in norm_cols_std)
+        # ── Step 1: Filter patient data (matches main_pipeline Stage 3) ───────
+        # filter_motion runs on the shoulder_origin output (already normalized).
+        # Only wrist_normalized_x/y/z are modified; all other columns preserved.
+        filtered_path = filter_motion(pat_path, temp_dir)
+
+        # ── Step 2: Scale template (matches main_pipeline Stage 4) ────────────
+        # CRITICAL: scale uses the NORMALIZED file (pat_path = shoulder_origin
+        # output), NOT the filtered file. This matches main_pipeline.py exactly:
+        #   scaled_template_path = scale(template, patient_normalized_path=normalized_path)
+        # The shoulder/arm-length scalars must come from the unfiltered file
+        # because filtering only touches wrist_normalized_x/y/z — the Shoulder
+        # and arm-length columns are identical in both files, but using pat_path
+        # is correct by definition and matches the friend's pipeline.
+        scaled_template_path = scale_template_file(
+            template_path=ref_path,
+            patient_normalized_path=pat_path,   # normalized = shoulder_origin output
+            output_dir=temp_dir,
         )
-        # Pre-scaled templates (wrist_scaled_x/y/z) don't need patient scalars
-        template_is_prescaled = all(c in template_df.columns for c in scaled_cols)
 
-        # ── Step 1: Extract patient body scalars (needed for scaling) ─────────
-        scalars = None
-        if template_is_normalized and not template_is_prescaled:
-            scalars = extract_patient_scalars(patient_df)
-            scaling_note = (
-                f"\nPATIENT BODY SCALARS (scaling applied)\n"
-                f"  Upper arm : {scalars['upper_arm_length']:.4f} m\n"
-                f"  Forearm   : {scalars['forearm_length']:.4f} m\n"
-                f"  Total arm : {scalars['total_arm_length']:.4f} m\n"
-                f"  Shoulder  : ({scalars['shoulder_x']:.3f}, "
-                f"{scalars['shoulder_y']:.3f}, {scalars['shoulder_z']:.3f}) m"
-            )
-        elif template_is_prescaled:
-            scaling_note = "\nSCALING: Template was pre-scaled externally, used directly."
-        else:
-            scaling_note = "\nSCALING: No recognized normalized columns found, used raw values."
+        # ── Step 3: Load data for scoring (matches main_pipeline Stage 5) ─────
+        # score_movement(patient_filtered_path=filtered_path,
+        #                template_scaled_path=scaled_template_path)
+        # _extract_patient_global_trajectory_from_filtered reconstructs global
+        # wrist coords from: wrist_normalized * total_arm_length + Shoulder_mean
+        from score import (
+            _extract_patient_global_trajectory_from_filtered,
+            _require_columns,
+            TEMPLATE_COLS,
+        )
 
-        # ── Step 2: Load reference trajectory ────────────────────────────────
-        ref_data = load_scaled_template_wrist(template_df, scalars)
+        pat_df = pd.read_excel(filtered_path)
+        ref_df = pd.read_excel(scaled_template_path)
 
-        # ── Step 3: Extract patient wrist trajectory ──────────────────────────
-        pat_data = load_patient_wrist(patient_df)
+        _require_columns(ref_df, TEMPLATE_COLS, "Scaled template")
+        ref_df_clean = ref_df.dropna(subset=TEMPLATE_COLS)
+        ref_data = ref_df_clean[TEMPLATE_COLS].to_numpy(dtype=float)
+        pat_data, pat_source = _extract_patient_global_trajectory_from_filtered(pat_df)
 
-        # ── DIAGNOSTICS — printed to server terminal ──────────────────────────
+        # ── DIAGNOSTICS ───────────────────────────────────────────────────────
         print("=" * 55)
         print("ANALYSIS DIAGNOSTICS")
         print("=" * 55)
-        print(f"Template file   : {template_file}")
         print(f"Patient file    : {patient_file}")
-        print(f"Template cols   : {list(template_df.columns)}")
-        print(f"Template normalized: {template_is_normalized}")
-        print(f"Template prescaled : {template_is_prescaled}")
-        if scalars:
-            print(f"Arm length      : {scalars['total_arm_length']:.4f} m")
-            print(f"Shoulder pos    : ({scalars['shoulder_x']:.4f}, {scalars['shoulder_y']:.4f}, {scalars['shoulder_z']:.4f})")
-        else:
-            print("Scalars         : None (no scaling applied)")
-        print(f"Template range X: {ref_data[:,0].min():.4f} to {ref_data[:,0].max():.4f}  (ptp={np.ptp(ref_data[:,0]):.4f})")
-        print(f"Template range Y: {ref_data[:,1].min():.4f} to {ref_data[:,1].max():.4f}  (ptp={np.ptp(ref_data[:,1]):.4f})")
-        print(f"Template range Z: {ref_data[:,2].min():.4f} to {ref_data[:,2].max():.4f}  (ptp={np.ptp(ref_data[:,2]):.4f})")
+        print(f"Template file   : {template_file}")
+        print(f"Filtered file   : {filtered_path}")
+        print(f"Scaled template : {scaled_template_path}")
+        print(f"Patient source  : {pat_source}")
+        print(f"Patient rows    : {len(pat_data)}  Template rows: {len(ref_data)}")
         print(f"Patient  range X: {pat_data[:,0].min():.4f} to {pat_data[:,0].max():.4f}  (ptp={np.ptp(pat_data[:,0]):.4f})")
         print(f"Patient  range Y: {pat_data[:,1].min():.4f} to {pat_data[:,1].max():.4f}  (ptp={np.ptp(pat_data[:,1]):.4f})")
         print(f"Patient  range Z: {pat_data[:,2].min():.4f} to {pat_data[:,2].max():.4f}  (ptp={np.ptp(pat_data[:,2]):.4f})")
+        print(f"Template range X: {ref_data[:,0].min():.4f} to {ref_data[:,0].max():.4f}  (ptp={np.ptp(ref_data[:,0]):.4f})")
+        print(f"Template range Y: {ref_data[:,1].min():.4f} to {ref_data[:,1].max():.4f}  (ptp={np.ptp(ref_data[:,1]):.4f})")
+        print(f"Template range Z: {ref_data[:,2].min():.4f} to {ref_data[:,2].max():.4f}  (ptp={np.ptp(ref_data[:,2]):.4f})")
         print("=" * 55)
 
-        # ── Step 4: DTW analysis ─────────────────────────────────────────────
-        # calculate_mdtw_with_sensitivity now returns 5 values (added centered arrays)
-        score, global_rmse, axis_rmse, ref_centered, pat_centered =             calculate_mdtw_with_sensitivity(ref_data, pat_data, sensitivity)
-
+        # ── Step 4: ROM metrics ───────────────────────────────────────────────
         rom_ratio, rom_ratios = calculate_rom_metrics(ref_data, pat_data)
-        rom_axis_grades = [get_rom_grade(r) for r in rom_ratios]
+        rom_axis_grades = [get_rom_grade(float(r)) for r in rom_ratios]
         avg_rom_grade   = int(round(float(np.mean(rom_axis_grades))))
-        shape_grade     = get_shape_grade(global_rmse, shape_tolerance)
 
-        # ── Step 5: SPARC smoothness analysis ────────────────────────────────
+        # ── Step 5: DTW score + shape grade + axis RMSE ───────────────────────
+        # Single call — no double computation.
+        score, global_rmse, axis_rmse, ref_centered, pat_centered =             calculate_mdtw_with_sensitivity(ref_data, pat_data, sensitivity)
+        shape_grade = get_shape_grade(global_rmse, shape_tolerance)
+
+        # ── Step 6: SPARC smoothness analysis ────────────────────────────────
         analyzer      = MovementAnalyzer()
         sparc_metrics = analyzer.compare_performances(ref_data, pat_data, use_filter=True)
 
         ref_s = sparc_metrics["Reference"]
         pat_s = sparc_metrics["Patient"]
-        sparc_grade_total = get_sparc_grade(pat_s["Total_SPARC"],    ref_s["Total_SPARC"])
-        sparc_grade_low   = get_sparc_grade(pat_s["Low_Band_SPARC"], ref_s["Low_Band_SPARC"])
-        sparc_grade_high  = get_sparc_grade(pat_s["High_Band_SPARC"],ref_s["High_Band_SPARC"])
 
-        # ── Step 6: Report ────────────────────────────────────────────────────
+        def _sparc_grade(pat_val, ref_val):
+            if ref_val == 0: return 0
+            ratio = pat_val / ref_val
+            if ratio >= 1.00: return 10
+            if ratio >= 0.95: return 9
+            if ratio >= 0.85: return 8
+            if ratio >= 0.70: return 7
+            if ratio >= 0.50: return 6
+            return 0
+
+        sparc_grade_total = _sparc_grade(pat_s["Total_SPARC"],    ref_s["Total_SPARC"])
+        sparc_grade_low   = _sparc_grade(pat_s["Low_Band_SPARC"], ref_s["Low_Band_SPARC"])
+        sparc_grade_high  = _sparc_grade(pat_s["High_Band_SPARC"],ref_s["High_Band_SPARC"])
+
+        # ── Step 7: Report ────────────────────────────────────────────────────
         report_text = generate_therapist_report(
-            rom_ratio, avg_rom_grade, rom_axis_grades, rom_ratios,
-            global_rmse, shape_grade, axis_rmse, shape_tolerance,
-            sparc_metrics=sparc_metrics,
+            rom_ratio=rom_ratio,
+            avg_rom_grade=avg_rom_grade,
+            rom_axis_grades=rom_axis_grades,
+            rom_ratios=rom_ratios,
+            global_rmse=global_rmse,
+            shape_grade=shape_grade,
+            axis_rmse=axis_rmse,
+            shape_limit=shape_tolerance,
         )
-        full_report = report_text + scaling_note
 
-        # ── Step 7: Build 4-panel plot (3D + report + velocity + spectrum) ───
+        # Append patient feedback from SPARC (new in score.py)
+        from score import print_patient_feedback
+        patient_feedback = print_patient_feedback(sparc_metrics)
+        feedback_text = ("PATIENT FEEDBACK"+ "".join(f"  {v}" for v in patient_feedback.values())        )
+        full_report = report_text + feedback_text
+
+        # ── Step 8: Plot ──────────────────────────────────────────────────────
         plot_b64 = build_comparison_figure(
             ref_centered, pat_centered, score, full_report,
             sparc_metrics=sparc_metrics,
         )
 
-        # ── Step 8: Encode Excel file to base64 for storage in Firestore ────
+        # ── Step 9: Encode Excel file to base64 ──────────────────────────────
         excel_b64 = excel_file_to_base64(pat_path)
 
         return jsonify({
@@ -611,31 +488,29 @@ def analyze():
             "rom_axis_grades":  rom_axis_grades,
             "avg_rom_grade":    avg_rom_grade,
             "shape_grade":      shape_grade,
-            # ── SPARC ──
             "sparc": {
-                "total":        round(float(pat_s["Total_SPARC"]),    4),
-                "low_band":     round(float(pat_s["Low_Band_SPARC"]), 4),
-                "high_band":    round(float(pat_s["High_Band_SPARC"]),4),
-                "velocity_rmse":round(float(pat_s["Velocity_RMSE"]),  4),
-                "peak_velocity":round(float(pat_s["Peak_Velocity"]),  4),
-                "ref_total":    round(float(ref_s["Total_SPARC"]),    4),
+                "total":              round(float(pat_s["Total_SPARC"]),              4),
+                "low_band":           round(float(pat_s["Low_Band_SPARC"]),           4),
+                "high_band":          round(float(pat_s["High_Band_SPARC"]),          4),
+                "velocity_rmse":      round(float(pat_s["Velocity_RMSE"]),            4),
+                "peak_velocity":      round(float(pat_s["Peak_Velocity"]),            4),
+                "ref_total":          round(float(ref_s["Total_SPARC"]),              4),
+                "velocity_lag_frames":int(pat_s["Velocity_Peak_Lag_Frames"]),
+                "velocity_lag_seconds":round(float(pat_s["Velocity_Peak_Lag_Seconds"]), 3),
+                "sudden_peak_count":  int(pat_s["Sudden_Peak_Count"]),
+                "sudden_drop_count":  int(pat_s["Sudden_Drop_Count"]),
             },
             "sparc_grades": {
-                "total":     sparc_grade_total,
+                "total":      sparc_grade_total,
                 "choppiness": sparc_grade_low,
-                "tremor":    sparc_grade_high,
+                "tremor":     sparc_grade_high,
             },
+            "patient_feedback": patient_feedback,
             "report_text":      full_report,
             "plot_image_b64":   plot_b64,
             "patient_file":     patient_file,
             "template_file":    template_file,
-            "excel_file_b64":   excel_b64,  # Base64-encoded Excel file for storage in Firestore
-            "scalars": {
-                "upper_arm_length": round(scalars["upper_arm_length"], 4) if scalars else None,
-                "forearm_length":   round(scalars["forearm_length"],   4) if scalars else None,
-                "total_arm_length": round(scalars["total_arm_length"], 4) if scalars else None,
-                "scaling_applied":  template_is_normalized,
-            },
+            "excel_file_b64":   excel_b64,
         })
 
     except Exception as e:
@@ -652,6 +527,22 @@ def list_patient_files():
         reverse=True
     )
     return jsonify({"files": files})
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "healthy"})
+
+
+@app.route("/templates", methods=["GET"])
+def list_templates_route():
+    if not os.path.exists(TEMPLATES_FOLDER):
+        return jsonify({"templates": []})
+    files = sorted(
+        [f for f in os.listdir(TEMPLATES_FOLDER) if f.endswith(".xlsx")],
+        reverse=True
+    )
+    return jsonify({"templates": files})
 
 
 if __name__ == "__main__":

@@ -228,9 +228,10 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         rom_axis_grades: result.rom_axis_grades,
         avg_rom_grade:  result.avg_rom_grade,
         shape_grade:    result.shape_grade,
-        sparc:          result.sparc,
-        sparc_grades:   result.sparc_grades,
-        report_text:    result.report_text,
+        sparc:            result.sparc,
+        sparc_grades:     result.sparc_grades,
+        patient_feedback: result.patient_feedback,
+        report_text:      result.report_text,
         plot_image_b64: result.plot_image_b64,
         excel_file_b64: result.excel_file_b64,  // Base64-encoded Excel file
       });
@@ -570,6 +571,21 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             <h3>Therapist Report</h3>
             <pre className="report-pre">{r.report_text}</pre>
           </div>
+
+          {/* Patient feedback */}
+          {r.patient_feedback && Object.keys(r.patient_feedback).length > 0 && (
+            <div className="result-card span-3">
+              <h3>Patient Feedback</h3>
+              <div className="feedback-list">
+                {Object.values(r.patient_feedback).map((msg, i) => (
+                  <div key={i} className={`feedback-item ${msg.toLowerCase().includes("detected") || msg.toLowerCase().includes("fail") || msg.toLowerCase().includes("slow") || msg.toLowerCase().includes("fast") || msg.toLowerCase().includes("spasm") ? "feedback-warn" : "feedback-ok"}`}>
+                    <span className="feedback-num">{i + 1}</span>
+                    <span>{msg}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Plot image */}
           <div className="result-card span-3">
