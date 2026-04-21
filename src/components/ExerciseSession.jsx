@@ -23,9 +23,25 @@ export default function ExerciseSession({ patient, patients, therapistId, onSave
 
   // Launches the Unity game via a custom URL scheme
   // You must register "physio://" in your Unity build's manifest / Info.plist
-  const launchUnity = () => {
-    window.location.href = `physio://start?exercise=${encodeURIComponent(exercise)}&reps=${reps}&duration=${duration}`;
+  const launchUnity = async () => {
     setLaunched(true);
+    try {
+      const res = await fetch("http://localhost:5050/mocap/unity_start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          duration: duration,
+          grace: 6,
+          exercise: exercise,
+          arm: "right",
+          trail: "unity_session_1"
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) alert(data.error || "Error starting Unity via backend");
+    } catch (err) {
+      alert("Failed to connect to backend server");
+    }
   };
 
   const handleSave = async () => {
@@ -107,8 +123,8 @@ export default function ExerciseSession({ patient, patients, therapistId, onSave
         </div>
 
         {launched && (
-          <div className="launch-notice">
-            <span>⚡</span> Game launched! If nothing opened, make sure the PhysioSync Unity app is installed on this machine.
+          <div className="launch-notice" style={{ marginTop: "1rem", color: "#a855f7" }}>
+            <span>⚡</span> Unity session activated! The game and tracker are starting up...
           </div>
         )}
       </div>

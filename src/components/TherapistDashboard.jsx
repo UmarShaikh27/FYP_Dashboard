@@ -54,8 +54,7 @@ export default function TherapistDashboard({ user, onLogout }) {
         </div>
         <nav className="sidebar-nav">
           <button className={view === "home"     ? "active" : ""} onClick={() => setView("home")}>🏠 Home</button>
-          <button className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")}>🔬 Run Analysis</button>
-          <button className={view === "session"  ? "active" : ""} onClick={() => setView("session")}>🎮 Manual Session</button>
+          <button className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")}>🔬 Therapy Session</button>
           <button className={view === "records"  ? "active" : ""} onClick={() => setView("records")}>📊 Records</button>
         </nav>
         <div className="sidebar-footer">
@@ -77,7 +76,7 @@ export default function TherapistDashboard({ user, onLogout }) {
                   <p>{p.email}</p>
                   <div className="card-actions">
                     <button className="btn-primary" onClick={() => { setSelectedPatient(p); setView("pipeline"); }}>
-                      Run Analysis
+                      Launch Session
                     </button>
                     <button className="btn-secondary" onClick={() => loadRecords(p)}>
                       View Records
@@ -94,15 +93,6 @@ export default function TherapistDashboard({ user, onLogout }) {
 
         {view === "pipeline" && (
           <PipelineRunner
-            patient={selectedPatient}
-            patients={patients}
-            therapistId={user.uid}
-            onSaved={() => setView("home")}
-          />
-        )}
-
-        {view === "session" && (
-          <ExerciseSession
             patient={selectedPatient}
             patients={patients}
             therapistId={user.uid}

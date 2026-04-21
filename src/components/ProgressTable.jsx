@@ -161,12 +161,6 @@ export default function ProgressTable({
           Analysis Results {analyses.length > 0 && <span className="tab-badge">{analyses.length}</span>}
         </button>
         <button
-          className={activeTab === "sessions" ? "active" : ""}
-          onClick={() => setActiveTab("sessions")}
-        >
-          Manual Sessions {sessions.length > 0 && <span className="tab-badge">{sessions.length}</span>}
-        </button>
-        <button
           className={activeTab === "progress" ? "active" : ""}
           onClick={() => setActiveTab("progress")}
         >
@@ -293,61 +287,6 @@ export default function ProgressTable({
                     )}
                   </div>
                 ))}
-              </div>
-            )
-          )}
-
-          {/* Manual Sessions Tab */}
-          {activeTab === "sessions" && (
-            sessions.length === 0 ? (
-              <div className="empty-state">No manual sessions recorded yet.</div>
-            ) : (
-              <div className="table-wrapper">
-                <table className="records-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Exercise</th>
-                      <th>Duration</th>
-                      <th>Reps</th>
-                      <th>Notes</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.map((s) => (
-                      <tr key={s.id}>
-                        <td>{s.createdAt?.toDate?.().toLocaleDateString() ?? "—"}</td>
-                        <td><span className="exercise-badge">{s.exerciseName}</span></td>
-                        <td>{s.durationMinutes} min</td>
-                        <td>{s.repsCompleted}</td>
-                        <td className="notes-cell">
-                          {s.notes || <span className="muted">—</span>}
-                        </td>
-                        <td>
-                          {deletingId === s.id && deleteType === "session" ? (
-                            <DeleteConfirm
-                              label="session"
-                              onConfirm={() => handleDeleteSession(s.id)}
-                              onCancel={() => setDeletingId(null)}
-                            />
-                          ) : (
-                            <button
-                              className="btn-delete"
-                              onClick={() => {
-                                setDeletingId(s.id);
-                                setDeleteType("session");
-                                setDeleteError("");
-                              }}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             )
           )}

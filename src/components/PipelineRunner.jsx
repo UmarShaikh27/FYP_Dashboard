@@ -143,12 +143,33 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   }, [step]);
 
   // ── Start recording ───────────────────────────────────────────────────────
-  const handleStartRecording = async () => {
+  const handleStartRecording = async (isUnity = false) => {
     if (!selectedPatient) return alert("Please select a patient first.");
     if (!template)         return alert("Please select an exercise template.");
     setStep(STEP.RECORDING);
     setRecordStatus({ state: "recording", message: `Recording for ${duration}s…`, output_file: null });
-    await startRecording(duration);
+    
+    if (isUnity) {
+      try {
+        const res = await fetch("http://localhost:5050/mocap/unity_start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            duration: duration,
+            grace: 6,
+            exercise: exerciseName,
+            arm: "right",
+            trail: "unity_session"
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) alert(data.error || "Error starting Unity via backend");
+      } catch (err) {
+        alert("Failed to connect to backend server");
+      }
+    } else {
+      await startRecording(duration);
+    }
   };
 
   // ── Run DTW analysis ──────────────────────────────────────────────────────
@@ -279,7 +300,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
       <div className="pipeline-view">
         <div className="pipeline-header">
           <div>
-            <h1>Run Analysis Pipeline</h1>
+            <h1>Launch Physiotherapy Session</h1>
             <p className="subtitle">Configure, record motion, and evaluate in one flow.</p>
           </div>
           <div className="server-badge">
@@ -341,9 +362,14 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
               <input type="number" step={0.05} min={0.05} max={1} value={shapeTol} onChange={(e) => setShapeTol(+e.target.value)} />
             </div>
 
-            <button className="btn-launch" style={{ marginTop: 8, width: "100%" }} onClick={handleStartRecording}>
-              🎥 Start Recording
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
+              <button className="btn-primary start" onClick={() => handleStartRecording(false)}>
+                ▶ Launch Session
+              </button>
+              <button className="btn-primary start" onClick={() => handleStartRecording(true)} style={{ background: "#a855f7" }}>
+                🎮 Launch Gamified Session
+              </button>
+            </div>
           </div>
 
           {/* Right: Analyze existing file */}
@@ -572,20 +598,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             <pre className="report-pre">{r.report_text}</pre>
           </div>
 
-          {/* Patient feedback */}
-          {r.patient_feedback && Object.keys(r.patient_feedback).length > 0 && (
-            <div className="result-card span-3">
-              <h3>Patient Feedback</h3>
-              <div className="feedback-list">
-                {Object.values(r.patient_feedback).map((msg, i) => (
-                  <div key={i} className={`feedback-item ${msg.toLowerCase().includes("detected") || msg.toLowerCase().includes("fail") || msg.toLowerCase().includes("slow") || msg.toLowerCase().includes("fast") || msg.toLowerCase().includes("spasm") ? "feedback-warn" : "feedback-ok"}`}>
-                    <span className="feedback-num">{i + 1}</span>
-                    <span>{msg}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+
 
           {/* Plot image */}
           <div className="result-card span-3">

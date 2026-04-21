@@ -456,11 +456,12 @@ def analyze():
             shape_limit=shape_tolerance,
         )
 
-        # Append patient feedback from SPARC (new in score.py)
+        # Get patient feedback from SPARC for the JSON response
         from score import print_patient_feedback
         patient_feedback = print_patient_feedback(sparc_metrics)
-        feedback_text = ("PATIENT FEEDBACK"+ "".join(f"  {v}" for v in patient_feedback.values())        )
-        full_report = report_text + feedback_text
+        
+        # Keep therapist report separate from patient feedback
+        full_report = report_text
 
         # ── Step 8: Plot ──────────────────────────────────────────────────────
         plot_b64 = build_comparison_figure(
@@ -543,6 +544,105 @@ def list_templates_route():
         reverse=True
     )
     return jsonify({"templates": files})
+
+
+@app.route("/mocap/unity_start", methods=["POST"])
+def mocap_unity_start():
+    global _mocap_process, _mocap_status
+    if _mocap_process and _mocap_process.poll() is None:
+        return jsonify({"error": "Recording already in progress"}), 400
+
+    data     = request.get_json(force=True)
+    duration = float(data.get("duration", 8))
+    grace    = float(data.get("grace",    6))
+    exercise = data.get("exercise", "exercise")
+    arm      = data.get("arm",      MOCAP_ARM)
+    trail    = data.get("trail",    "trail_1")
+
+    _mocap_status = {
+        "state":   "grace",
+        "message": f"Launching Unity Game and Camera...",
+        "output_file": None,
+    }
+    
+    unity_exe_path = os.path.join(os.path.dirname(__file__), "UnityPipeline", "Builds", "Body control 3D model.exe")
+    
+    def run():
+        global _mocap_process, _mocap_status
+        unity_proc = None
+        if os.path.exists(unity_exe_path):
+            unity_proc = subprocess.Popen([unity_exe_path])
+        else:
+            print(f"[Unity Launch] Warning: Executable not found at {unity_exe_path}")
+            
+        try:
+            env = os.environ.copy()
+            env["MOCAP_CAMERA"]      = "realsense"
+            env["MOCAP_ARM"]         = arm
+            env["MOCAP_DURATION"]    = str(duration)
+            env["MOCAP_GRACE"]       = str(grace)
+            env["MOCAP_EXERCISE"]    = exercise
+            env["MOCAP_TRAIL"]       = trail
+            env["MOCAP_OUTPUT_DIR"]  = OUTPUT_FOLDER
+            env["MOCAP_MODEL_PATH"]  = MOCAP_MODEL_PATH
+            env["MOCAP_UDP_STREAM"]  = "true"
+
+            _mocap_process = subprocess.Popen(
+                [sys.executable, MOCAP_SCRIPT],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout, stderr = _mocap_process.communicate()
+
+            stdout_str = stdout.decode("utf-8", errors="replace")
+            stderr_str = stderr.decode("utf-8", errors="replace")
+
+            if stdout_str.strip():
+                print("[MOCAP STDOUT]\n" + stdout_str)
+            if stderr_str.strip():
+                print("[MOCAP STDERR]\n" + stderr_str)
+
+            excel_saved_in_stdout = "Excel Saved" in stdout_str
+            output_file = latest_file_in(OUTPUT_FOLDER)
+            succeeded = (
+                _mocap_process.returncode == 0
+                or (excel_saved_in_stdout and output_file is not None)
+            )
+
+            if succeeded:
+                _mocap_status = {
+                    "state":       "done",
+                    "message":     "Unity Session Recording complete. Ready to analyze.",
+                    "output_file": os.path.basename(output_file) if output_file else None,
+                    "stdout":      stdout_str,
+                    "stderr":      stderr_str,
+                }
+            else:
+                _mocap_status = {
+                    "state":   "error",
+                    "message": "Unity pipeline failed or cancelled.",
+                    "stdout":  stdout_str,
+                    "stderr":  stderr_str,
+                }
+        except Exception as e:
+            _mocap_status = {
+                "state":   "error",
+                "message": f"Server crash: {str(e)}"
+            }
+        finally:
+            if unity_proc:
+                try:
+                    unity_proc.terminate()
+                    unity_proc.wait(timeout=2)
+                except:
+                    try:
+                        unity_proc.kill()
+                    except:
+                        pass
+
+    threading.Thread(target=run).start()
+    return jsonify({"status": "starting", "message": "Starting Unity game & motion capture..."})
 
 
 if __name__ == "__main__":

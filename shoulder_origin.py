@@ -61,6 +61,14 @@ class MotionCaptureApp:
         self.trail          = os.environ.get("MOCAP_TRAIL",     "trail_1")
         self.output_dir     = os.environ.get("MOCAP_OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "output_excel"))
         self.model_path     = os.environ.get("MOCAP_MODEL_PATH", "")
+        self.udp_stream     = os.environ.get("MOCAP_UDP_STREAM", "false").lower() == "true"
+
+        if self.udp_stream:
+            import socket
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.unity_host = "127.0.0.1"
+            self.unity_port = 50237
+            print(f"UDP Streaming enabled -> {self.unity_host}:{self.unity_port}")
 
         # Hardware
         self.pipeline = None
@@ -313,6 +321,27 @@ class MotionCaptureApp:
                 if landmarks:
                     self._draw_landmarks(image_bgr, landmarks)
                     h, w, _ = image.shape
+
+                    if self.udp_stream:
+                        import json
+                        packet_landmarks = []
+                        for idx, lm in enumerate(landmarks):
+                            px, py = int(lm.x * w), int(lm.y * h)
+                            x, y, z = lm.x, lm.y, lm.z
+                            if self.camera_source == 'realsense':
+                                p3d = self._deproject(depth_frame, px, py)
+                                if p3d:
+                                    x, y, z = p3d
+                            packet_landmarks.append({"id": idx, "x": float(x), "y": float(y), "z": float(z)})
+                        packet = {
+                            "landmarks": packet_landmarks,
+                            "left_hand": [],
+                            "right_hand": []
+                        }
+                        try:
+                            self.sock.sendto(json.dumps(packet, separators=(",", ":")).encode("utf-8"), (self.unity_host, self.unity_port))
+                        except Exception as e:
+                            print(f"[UDP Error] {e}")
 
                     if state == "RECORDING":
                         row = {'timestamp': time.time() - self.recording_start_time}

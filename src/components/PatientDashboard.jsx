@@ -74,9 +74,6 @@ export default function PatientDashboard({ user, onLogout }) {
           <button className={activeTab === "analyses" ? "active" : ""} onClick={() => setActiveTab("analyses")}>
             🔬 My Analysis Results
           </button>
-          <button className={activeTab === "sessions" ? "active" : ""} onClick={() => setActiveTab("sessions")}>
-            📋 Manual Sessions
-          </button>
         </div>
 
         {loading ? (
@@ -128,30 +125,6 @@ export default function PatientDashboard({ user, onLogout }) {
                       )}
                     </div>
                   ))}
-                </div>
-              )
-            )}
-            {activeTab === "sessions" && (
-              sessions.length === 0 ? (
-                <div className="empty-state">No manual sessions recorded yet.</div>
-              ) : (
-                <div className="table-wrapper">
-                  <table className="records-table">
-                    <thead>
-                      <tr><th>Date</th><th>Exercise</th><th>Duration</th><th>Reps</th><th>Notes</th></tr>
-                    </thead>
-                    <tbody>
-                      {sessions.map((s) => (
-                        <tr key={s.id}>
-                          <td>{s.createdAt?.toDate?.().toLocaleDateString() ?? "—"}</td>
-                          <td><span className="exercise-badge">{s.exerciseName}</span></td>
-                          <td>{s.durationMinutes} min</td>
-                          <td>{s.repsCompleted}</td>
-                          <td className="notes-cell">{s.notes || <span className="muted">—</span>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               )
             )}
