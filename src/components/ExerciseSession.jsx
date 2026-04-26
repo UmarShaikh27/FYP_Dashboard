@@ -26,7 +26,7 @@ export default function ExerciseSession({ patient, patients, therapistId, onSave
   const launchUnity = async () => {
     setLaunched(true);
     try {
-      const res = await fetch("http://localhost:5050/mocap/unity_start", {
+      const res = await fetch("http://localhost:5000/mocap/unity_start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

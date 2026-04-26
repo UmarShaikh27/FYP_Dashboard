@@ -1,11 +1,16 @@
 """
-server.py - PhysioSync Local Backend
-=====================================
-Pipeline order:
-  1. shoulder_origin.py  - records Shoulder/Elbow/Wrist, saves normalized Excel
-  2. filter_data.py      - 3-stage filter on wrist_normalized_x/y/z
-  3. scale_template.py   - scales normalized template to patient body coordinates
-  4. score.py            - DTW + SPARC scoring on filtered patient vs scaled template
+server.py - PhysioSync Local Backend (Updated with Capstone 2 Multi-Attempt Pipeline)
+=====================================================================================
+
+Integrated Pipeline (Main → Analyze):
+  1. Capture           - gesture-enabled live capture (optional, from Capstone 2)
+  2. Normalize         - shoulder-relative + arm-length normalization
+  3. Segment Attempts  - velocity-based multi-attempt extraction
+  4. Per-Attempt Loop:
+     4a. Filter       - 3-stage signal cleaning
+     4b. Scale Template
+     4c. Score        - hierarchical weighted DTW + SPARC
+  5. Session Aggregation - weighted averages + global report
 
 Install:
   pip install flask flask-cors numpy pandas tslearn openpyxl matplotlib mediapipe opencv-python pyrealsense2
@@ -22,6 +27,7 @@ import os
 import io
 import base64
 import time
+import json
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -29,9 +35,28 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import sys
-sys.path.insert(0, os.path.dirname(__file__))
 
-# Import from the new unified pipeline modules
+# All pipeline modules are now at the root folder
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+# Import pipeline modules
+from capture import run_capture
+from normalize import normalize
+from segment_attempts import segment_attempts
+from filter_data import filter_motion
+from scale_template import scale as scale_template_file
+from score import (
+    score_movement,
+    load_weights,
+    weighted_average,
+    _extract_patient_global_trajectory_from_filtered,
+    _require_columns,
+    TEMPLATE_COLS,
+)
+
+# Import legacy score helpers (backward compatibility)
 from score import (
     calculate_mdtw_with_sensitivity,
     calculate_rom_metrics,
@@ -40,30 +65,33 @@ from score import (
     generate_therapist_report,
     MovementAnalyzer,
 )
-from scale_template import scale as scale_template_file
-from filter_data import filter_motion
 
 app = Flask(__name__)
 CORS(app)
 
 # ============================================================
-# CONFIGURATION  —  edit these two lines
+# CONFIGURATION
 # ============================================================
-MOCAP_MODEL_PATH = r"C:\Users\Umar Shaikh\OneDrive - Habib University\SEM 7\Dashboard App\models\pose_landmarker_lite.task"  # <-- EDIT THIS
-MOCAP_ARM        = "right"   # "right" or "left"
+MOCAP_ARM        = "right"   # Default arm if not specified by client
 # ============================================================
 
-MOCAP_SCRIPT     = os.path.join(os.path.dirname(__file__), "shoulder_origin.py")
-OUTPUT_FOLDER    = os.path.join(os.path.dirname(__file__), "output_excel")
-TEMPLATES_FOLDER = os.path.join(os.path.dirname(__file__), "templates")
+OUTPUT_FOLDER    = os.path.join(ROOT_DIR, "output_excel")
+TEMPLATES_FOLDER = os.path.join(ROOT_DIR, "templates")
+SCORING_WEIGHTS  = os.path.join(ROOT_DIR, "scoring_weights")
+
+# Keep CAPSTONE_WEIGHTS as alias for existing code that references it
+CAPSTONE_WEIGHTS = SCORING_WEIGHTS
 
 _mocap_process = None
 _mocap_status  = {"state": "idle", "message": "", "output_file": None}
+_pipeline_state = {"state": "idle", "message": "", "progress": 0}
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 def latest_file_in(folder, extension=".xlsx"):
     """Returns the most recently modified file with given extension."""
+    if not os.path.exists(folder):
+        return None
     files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(extension)]
     if not files:
         return None
@@ -80,10 +108,7 @@ def figure_to_base64(fig):
 
 
 def excel_file_to_base64(excel_file_path):
-    """
-    Read an Excel file and convert it to base64 string.
-    Returns base64 string if successful, None otherwise.
-    """
+    """Read an Excel file and convert it to base64 string."""
     try:
         with open(excel_file_path, 'rb') as f:
             excel_data = f.read()
@@ -95,14 +120,44 @@ def excel_file_to_base64(excel_file_path):
         return None
 
 
+def normalize_exercise_type(exercise_type):
+    """
+    Map user-facing exercise names to the Capstone 2 internal keys.
+    e.g. "Eight Tracing" -> "eight_tracing"
+    """
+    mapping = {
+        "eight tracing":  "eight_tracing",
+        "eight_tracing":  "eight_tracing",
+        "circumduction":  "circumduction",
+        "flexion":        "flexion",
+        "flexion_2kg":    "flexion",
+        "flexion 2kg":    "flexion",
+    }
+    key = exercise_type.lower().strip() if exercise_type else "eight_tracing"
+    return mapping.get(key, key.lower().replace(" ", "_"))
+
+
+def get_exercise_weights(exercise_type):
+    """Load exercise-specific scoring weights."""
+    normalized = normalize_exercise_type(exercise_type)
+    # Try the normalized key first, then with _eight_tracing suffix for the naming convention
+    candidates = [
+        os.path.join(CAPSTONE_WEIGHTS, f"scoring_weights_{normalized}.json"),
+        os.path.join(CAPSTONE_WEIGHTS, f"scoring_weights_{normalized.replace('_', '_')}.json"),
+    ]
+    for weights_path in candidates:
+        if os.path.exists(weights_path):
+            return load_weights(weights_path)
+    print(f"[WARN] Weights file not found for '{exercise_type}' (normalized: '{normalized}'), using defaults")
+    # Fall back to the eight_tracing weights as default
+    fallback = os.path.join(CAPSTONE_WEIGHTS, "scoring_weights_eight_tracing.json")
+    if os.path.exists(fallback):
+        return load_weights(fallback)
+    return load_weights(None)
+
+
 def build_comparison_figure(ref_centered, pat_centered, score, report_text, sparc_metrics=None):
-    """
-    Dark-themed plot:
-      Top: 3D trajectory (mean-centred)
-      Bottom: SPARC plots (velocity + spectrum) — only if sparc_metrics provided
-    
-    Note: Therapist report is displayed separately in the UI, not on the plot.
-    """
+    """Dark-themed plot with 3D trajectory and SPARC analysis."""
     has_sparc = sparc_metrics is not None
     nrows = 2 if has_sparc else 1
 
@@ -177,120 +232,435 @@ def build_comparison_figure(ref_centered, pat_centered, score, report_text, spar
     return figure_to_base64(fig)
 
 
+# ── Helper: Generate comparison plot ───────────────────────────────────────
+def generate_comparison_plot(first_attempt, all_attempts, exercise_type="eight_tracing"):
+    """Generate a simple matplotlib plot for multi-attempt comparison."""
+    try:
+        fig = plt.figure(figsize=(12, 4))
+        fig.patch.set_facecolor("#0f1419")
+        
+        # Plot 1: Per-attempt scores
+        ax1 = fig.add_subplot(1, 2, 1)
+        scores = [a.get("score", 0) for a in all_attempts]
+        attempts = list(range(1, len(scores) + 1))
+        ax1.plot(attempts, scores, marker='o', linestyle='-', linewidth=2, markersize=8, color='#00d4ff')
+        ax1.fill_between(attempts, scores, alpha=0.3, color='#0090ff')
+        ax1.set_xlabel('Attempt #', color='#e8edf5')
+        ax1.set_ylabel('Score', color='#e8edf5')
+        ax1.set_title('Score Progression', color='#e8edf5', fontsize=12, fontweight='bold')
+        ax1.set_facecolor('#1a202c')
+        ax1.tick_params(colors='#e8edf5')
+        ax1.grid(True, alpha=0.2, color='#232a3a')
+        for spine in ax1.spines.values():
+            spine.set_color('#232a3a')
+        
+        # Plot 2: Weighted components
+        ax2 = fig.add_subplot(1, 2, 2)
+        components = list(first_attempt.get("weighted_components", {}).keys()) or ["SOM", "ROM", "Tremor", "Hesitation", "Control"]
+        values = list(first_attempt.get("weighted_components", {}).values()) or [0] * len(components)
+        colors = ['#00d4ff', '#0090ff', '#00b894', '#fbbf24', '#ff6b6e'][:len(components)]
+        bars = ax2.barh(components, values, color=colors, alpha=0.8)
+        ax2.set_xlabel('Score', color='#e8edf5')
+        ax2.set_title('Weighted Components (First Attempt)', color='#e8edf5', fontsize=12, fontweight='bold')
+        ax2.set_facecolor('#1a202c')
+        ax2.tick_params(colors='#e8edf5')
+        ax2.set_xlim([0, 10])
+        for spine in ax2.spines.values():
+            spine.set_color('#232a3a')
+        
+        # Add value labels on bars
+        for bar in bars:
+            width = bar.get_width()
+            ax2.text(width, bar.get_y() + bar.get_height()/2, f'{width:.1f}', 
+                    ha='left', va='center', color='#e8edf5', fontsize=9, fontweight='bold')
+        
+        fig.tight_layout()
+        
+        # Convert to base64
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', facecolor='#0f1419', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        image_b64 = base64.b64encode(buf.read()).decode()
+        plt.close(fig)
+        return image_b64
+    except Exception as e:
+        print(f"[ERROR] Failed to generate plot: {e}")
+        return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_multi_attempt_analysis(patient_file, template_file, exercise_type="eight_tracing", 
+                               n_attempts=None, weights=None):
+    """
+    Complete multi-attempt analysis pipeline.
+    
+    Returns dict with:
+    {
+      "global_score": float,
+      "num_attempts": int,
+      "per_attempt_scores": list,
+      "weighted_scores": dict,
+      "session_summary": str,
+      "per_attempt_details": list,
+      "session_plot": "base64_png"
+    }
+    """
+    global _pipeline_state
+    
+    pat_path = os.path.join(OUTPUT_FOLDER, patient_file)
+    ref_path = os.path.join(TEMPLATES_FOLDER, template_file)
+    
+    if not os.path.exists(pat_path):
+        raise FileNotFoundError(f"Patient file not found: {patient_file}")
+    if not os.path.exists(ref_path):
+        ref_path = os.path.join(TEMPLATES_FOLDER, template_file)
+        if not os.path.exists(ref_path):
+            raise FileNotFoundError(f"Template file not found in templates/: {template_file}")
+    
+    # Get weights
+    if weights is None:
+        weights = get_exercise_weights(exercise_type)
+    
+    # ── Temp working directory ──────────────────────────────────────────────
+    temp_dir = os.path.join(OUTPUT_FOLDER, "_temp_pipeline")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    try:
+        # ── Stage 1: Normalize ───────────────────────────────────────────────
+        _pipeline_state = {"state": "normalizing", "message": "Normalizing bone transform...", "progress": 10}
+        normalized_path = normalize(pat_path, temp_dir)
+        print(f"[OK] Normalized: {normalized_path}")
+        
+        # ── Stage 2: Segment Attempts ───────────────────────────────────────
+        _pipeline_state = {"state": "segmenting", "message": "Detecting exercise attempts...", "progress": 20}
+        attempt_paths = segment_attempts(
+            normalized_excel_path=normalized_path,
+            output_dir=temp_dir,
+            n_attempts=n_attempts,
+            min_gap_seconds=1.5,
+            rest_velocity_percentile=18.0,
+            min_attempt_seconds=0.5,
+            exercise_type=exercise_type
+        )
+        num_attempts = len(attempt_paths)
+        print(f"[OK] Segmented into {num_attempts} attempts")
+        
+        # ── Stage 3: Per-Attempt Analysis ───────────────────────────────────
+        per_attempt_scores = []
+        per_attempt_details = []
+        
+        for i, attempt_path in enumerate(attempt_paths):
+            attempt_num = i + 1
+            _pipeline_state = {
+                "state": "analyzing",
+                "message": f"Analyzing attempt {attempt_num}/{num_attempts}...",
+                "current_attempt": attempt_num,
+                "total_attempts": num_attempts,
+                "progress": 30 + (i * 60 // num_attempts)
+            }
+            
+            # Create attempt-specific output directory
+            attempt_out_dir = os.path.join(temp_dir, f"attempt_{attempt_num}")
+            os.makedirs(attempt_out_dir, exist_ok=True)
+            
+            # Filter
+            filtered_path = filter_motion(attempt_path, attempt_out_dir)
+            
+            # Scale template (use original normalized file for scaling params)
+            scaled_template_path = scale_template_file(
+                template_path=ref_path,
+                patient_normalized_path=normalized_path,
+                output_dir=attempt_out_dir
+            )
+            
+            # Score this attempt
+            attempt_result = score_movement(
+                patient_filtered_path=filtered_path,
+                template_scaled_path=scaled_template_path,
+                output_dir=attempt_out_dir,
+                velocity_buffer_pct=0.10,
+                weights=weights
+            )
+            
+            # Debug: Log what we got back
+            print(f"[DEBUG] Attempt {attempt_num} result keys: {list(attempt_result.keys())}")
+            
+            # Extract all fields directly from compute_score return (all out of 10)
+            attempt_score = {
+                "attempt_num":        attempt_num,
+                "global_score":       attempt_result.get("global_score", 0),
+                "dtw_score":          attempt_result.get("dtw_score", 0),
+                "som_grade":          attempt_result.get("som_grade", 0),
+                "rom_grade":          attempt_result.get("rom_grade", 0),
+                "tempo_control_grade": attempt_result.get("tempo_control_grade", 0),
+                "hesitation_grade":   attempt_result.get("hesitation_grade", 0),
+                "tremor_grade":       attempt_result.get("tremor_grade", 0),
+                "global_rmse":        attempt_result.get("global_rmse", 0),
+                "rom_ratio_avg":      attempt_result.get("rom_ratio_avg", 0),
+                "plot_path":          attempt_result.get("saved", {}).get("therapist_view_png"),
+                "patient_view_path":  attempt_result.get("saved", {}).get("patient_view_png"),
+            }
+            per_attempt_details.append(attempt_score)
+            per_attempt_scores.append(attempt_score["global_score"])
+        
+        # ── Stage 4: Session Aggregation ────────────────────────────────────
+        _pipeline_state = {"state": "aggregating", "message": "Calculating session averages...", "progress": 90}
+        
+        # Average all sub-scores across attempts
+        def avg_field(field):
+            vals = [a[field] for a in per_attempt_details if a.get(field) is not None]
+            return round(float(np.mean(vals)), 2) if vals else 0.0
+
+        session_scores = {
+            "global_score":         avg_field("global_score"),
+            "dtw_score":            avg_field("dtw_score"),
+            "som_grade":            avg_field("som_grade"),
+            "rom_grade":            avg_field("rom_grade"),
+            "tempo_control_grade":  avg_field("tempo_control_grade"),
+            "hesitation_grade":     avg_field("hesitation_grade"),
+            "tremor_grade":         avg_field("tremor_grade"),
+        }
+
+        best_score  = max(per_attempt_scores)
+        worst_score = min(per_attempt_scores)
+        improvement = per_attempt_scores[-1] - per_attempt_scores[0] if num_attempts > 1 else 0
+        
+        # ── Stage 5: Generate Session Plots ─────────────────────────────────
+        _pipeline_state = {"state": "plotting", "message": "Generating session plots...", "progress": 95}
+
+        def encode_image(path):
+            if path and os.path.exists(path):
+                with open(path, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            return ""
+
+        # Import session-level plot functions from main_pipeline.py
+        try:
+            from main_pipeline import plot_session_attempts, plot_global_report
+            session_attempts_plot_path = plot_session_attempts(attempt_paths, temp_dir)
+            session_attempts_plot_b64  = encode_image(session_attempts_plot_path)
+            global_report_plot_b64     = encode_image(
+                plot_global_report(per_attempt_details, weights, temp_dir)
+            )
+        except Exception as plot_err:
+            print(f"[WARN] Could not generate session plots: {plot_err}")
+            session_attempts_plot_b64 = ""
+            global_report_plot_b64    = ""
+
+        attempt_progression = {
+            "avg_score":                round(float(np.mean(per_attempt_scores)), 2),
+            "best_attempt":             best_score,
+            "worst_attempt":            worst_score,
+            "improvement_first_to_last": round(improvement, 2),
+            "trend": "improving" if improvement > 0.5 else "declining" if improvement < -0.5 else "stable"
+        }
+        
+        return {
+            # Session-level scores (all out of 10)
+            "global_score":             session_scores["global_score"],
+            "dtw_score":                session_scores["dtw_score"],
+            "som_grade":                session_scores["som_grade"],
+            "rom_grade":                session_scores["rom_grade"],
+            "tempo_control_grade":      session_scores["tempo_control_grade"],
+            "hesitation_grade":         session_scores["hesitation_grade"],
+            "tremor_grade":             session_scores["tremor_grade"],
+
+            # Attempt summary
+            "num_attempts":             num_attempts,
+            "per_attempt_scores":       per_attempt_scores,   # list of floats out of 10
+            "per_attempt_metrics":      per_attempt_details,  # full detail per attempt
+            "attempt_progression":      attempt_progression,
+
+            # Plots (base64 PNG)
+            "session_attempts_plot_b64": session_attempts_plot_b64,
+            "global_report_plot_b64":    global_report_plot_b64,
+
+            # Meta
+            "exercise_type":            exercise_type,
+            "weights_config":           weights,
+            "patient_file":             os.path.basename(patient_file) if patient_file else "",
+            "template_file":            os.path.basename(template_file) if template_file else "",
+        }
+    
+    except Exception as e:
+        _pipeline_state = {"state": "error", "message": str(e), "progress": 0}
+        raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Flask Routes
+# ═══════════════════════════════════════════════════════════════════════════
+#  API ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/templates", methods=["GET"])
+def get_templates():
+    """List all available exercise template files."""
+    try:
+        if not os.path.exists(TEMPLATES_FOLDER):
+            return jsonify({"templates": []})
+        templates = [f for f in os.listdir(TEMPLATES_FOLDER) if f.endswith(('.xlsx', '.xls'))]
+        return jsonify({"templates": sorted(templates)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/files/patient", methods=["GET"])
+def get_patient_files():
+    """List all recorded patient motion files."""
+    try:
+        if not os.path.exists(OUTPUT_FOLDER):
+            return jsonify({"files": []})
+        files = [f for f in os.listdir(OUTPUT_FOLDER) if f.endswith(('.xlsx', '.xls')) and not f.startswith('_temp')]
+        return jsonify({"files": sorted(files, reverse=True)})  # Most recent first
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/pipeline/status", methods=["GET"])
+def pipeline_status():
+    """Get current pipeline state and progress."""
+    return jsonify(_pipeline_state)
+
+
+@app.route("/pipeline/analyze", methods=["POST"])
+def pipeline_analyze():
+    """
+    Full multi-attempt analysis.
+    
+    Body: {
+      "patient_file": "...",
+      "template_file": "...",
+      "exercise_type": "eight_tracing",
+      "n_attempts": null,
+      "weights_override": null
+    }
+    """
+    data = request.get_json(force=True)
+    
+    patient_file = data.get("patient_file")
+    template_file = data.get("template_file")
+    exercise_type_raw = data.get("exercise_type", "eight_tracing")
+    exercise_type = normalize_exercise_type(exercise_type_raw)  # "Eight Tracing" -> "eight_tracing"
+    n_attempts = data.get("n_attempts")
+    weights_override = data.get("weights_override")
+    
+    print(f"[INFO] Exercise type: '{exercise_type_raw}' -> normalized: '{exercise_type}'")
+    
+    if not patient_file or not template_file:
+        return jsonify({"error": "patient_file and template_file required"}), 400
+    
+    try:
+        weights = weights_override if weights_override else get_exercise_weights(exercise_type)
+        
+        result = run_multi_attempt_analysis(
+            patient_file=patient_file,
+            template_file=template_file,
+            exercise_type=exercise_type,
+            n_attempts=n_attempts,
+            weights=weights
+        )
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
 @app.route("/mocap/start", methods=["POST"])
 def mocap_start():
     """
-    Launches shoulder_origin.py as a subprocess.
-    Config is passed via environment variables — no interactive prompts.
+    Launches capture.py's run_capture() in a background thread.
 
     Body: {
-      "duration":      8,
-      "grace":         6,
-      "exercise":      "Wrist Rotation",
-      "trail":         "trail_1",
-      "arm":           "right"
+      "duration": 8,
+      "grace": 6,
+      "exercise": "eight_tracing",
+      "arm": "right",
+      "gesture_enabled": false
     }
     """
-    global _mocap_process, _mocap_status
+    global _mocap_status
 
-    if _mocap_process and _mocap_process.poll() is None:
+    if _mocap_status.get("state") == "recording":
         return jsonify({"error": "Recording already in progress"}), 400
 
-    data     = request.get_json(force=True)
-    duration = float(data.get("duration", 8))
-    grace    = float(data.get("grace",    6))
-    exercise = data.get("exercise", "exercise")
-    trail    = data.get("trail",    "trail_1")
-    arm      = data.get("arm",      MOCAP_ARM)
+    data = request.get_json(force=True)
+    duration        = float(data.get("duration", 8))
+    grace           = float(data.get("grace", 5))
+    exercise        = data.get("exercise", "exercise")
+    arm             = data.get("arm", MOCAP_ARM)
+    gesture_enabled = bool(data.get("gesture_enabled", False))
 
     _mocap_status = {
-        "state":   "grace",
-        "message": f"Camera opening — press SPACE in the camera window to start countdown…",
+        "state": "recording",
+        "message": f"Camera opening — press SPACE in the camera window to start…",
         "output_file": None,
     }
 
     def run():
-        global _mocap_process, _mocap_status
+        global _mocap_status
         try:
-            # Pass all config as environment variables to shoulder_origin.py
-            env = os.environ.copy()
-            env["MOCAP_CAMERA"]      = "realsense"
-            env["MOCAP_ARM"]         = arm
-            env["MOCAP_DURATION"]    = str(duration)
-            env["MOCAP_GRACE"]       = str(grace)
-            env["MOCAP_EXERCISE"]    = exercise
-            env["MOCAP_TRAIL"]       = trail
-            env["MOCAP_OUTPUT_DIR"]  = OUTPUT_FOLDER
-            env["MOCAP_MODEL_PATH"]  = MOCAP_MODEL_PATH
-
-            _mocap_process = subprocess.Popen(
-                [sys.executable, MOCAP_SCRIPT],
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            raw_path, selected_arm = run_capture(
+                patient_name="patient",
+                arm=arm,
+                duration=duration,
+                grace_period=int(grace),
+                exercise_type=exercise,
+                output_dir=OUTPUT_FOLDER,
+                session=1,
+                gesture_enabled=gesture_enabled,
+                gesture_hold_seconds=2.0,
+                camera_source="realsense",
             )
-            stdout, stderr = _mocap_process.communicate()
-
-            stdout_str = stdout.decode("utf-8", errors="replace")
-            stderr_str = stderr.decode("utf-8", errors="replace")
-
-            # Print full output to server terminal so you can always see it there
-            if stdout_str.strip():
-                print("[MOCAP STDOUT]\n" + stdout_str)
-            if stderr_str.strip():
-                print("[MOCAP STDERR]\n" + stderr_str)
-
-            # ── Determine success ─────────────────────────────────────────────
-            # shoulder_origin.py prints "Excel Saved: <path>" on success.
-            # We treat the run as successful if:
-            #   (a) returncode == 0, OR
-            #   (b) a new Excel file exists in output_excel/ AND stdout mentions "Excel Saved"
-            # This handles MediaPipe/OpenCV writing to stderr on clean exits,
-            # which causes a non-zero returncode on some platforms.
-            excel_saved_in_stdout = "Excel Saved" in stdout_str
-            output_file = latest_file_in(OUTPUT_FOLDER)
-            succeeded = (
-                _mocap_process.returncode == 0
-                or (excel_saved_in_stdout and output_file is not None)
-            )
-
-            if succeeded:
-                _mocap_status = {
-                    "state":       "done",
-                    "message":     "Recording complete. Ready to analyze.",
-                    "output_file": os.path.basename(output_file) if output_file else None,
-                    "stdout":      stdout_str,
-                    "stderr":      stderr_str,
-                }
-            else:
-                # Extract just the Traceback section — skip MediaPipe warning noise
-                lines = stderr_str.splitlines()
-                tb_lines = []
-                in_traceback = False
-                for line in lines:
-                    if line.startswith("Traceback"):
-                        in_traceback = True
-                    if in_traceback:
-                        tb_lines.append(line)
-
-                # Fallback: show last 30 lines if no traceback found
-                if tb_lines:
-                    clean_error = "\n".join(tb_lines)
-                else:
-                    clean_error = "\n".join(lines[-30:]) if lines else "No error output captured."
-
-                _mocap_status = {
-                    "state":       "error",
-                    "message":     clean_error,
-                    "full_stderr": stderr_str,
-                    "output_file": None,
-                }
+            _mocap_status = {
+                "state": "done",
+                "message": "Recording complete. Ready to analyze.",
+                "output_file": os.path.basename(raw_path),
+            }
         except Exception as e:
-            import traceback as tb
-            _mocap_status = {"state": "error", "message": str(e), "full_stderr": tb.format_exc(), "output_file": None}
+            import traceback
+            _mocap_status = {
+                "state": "error",
+                "message": str(e),
+                "full_stderr": traceback.format_exc(),
+                "output_file": None,
+            }
 
     threading.Thread(target=run, daemon=True).start()
     return jsonify({"status": "started"})
+
+
+@app.route("/mocap/unity_start", methods=["POST"])
+def mocap_unity_start():
+    """
+    Start gamified recording session via Unity.
+    Currently forwards to standard mocap start.
+    
+    Body: {
+      "duration": 8,
+      "grace": 6,
+      "exercise": "Wrist Rotation",
+      "arm": "right",
+      "trail": "unity_session"
+    }
+    """
+    # For now, this just calls the standard mocap start
+    # In the future, this could send commands to a Unity process
+    data = request.get_json(force=True)
+    
+    # Forward to the standard mocap start
+    return mocap_start()
 
 
 @app.route("/mocap/status", methods=["GET"])
@@ -300,11 +670,11 @@ def mocap_status():
 
 @app.route("/mocap/logs", methods=["GET"])
 def mocap_logs():
-    """Returns full stderr output from the last mocap run — useful for debugging."""
+    """Returns full stderr output from the last mocap run."""
     return jsonify({
         "full_stderr": _mocap_status.get("full_stderr", ""),
-        "stdout":      _mocap_status.get("stdout", ""),
-        "state":       _mocap_status.get("state", "idle"),
+        "stdout": _mocap_status.get("stdout", ""),
+        "state": _mocap_status.get("state", "idle"),
     })
 
 
@@ -317,349 +687,97 @@ def mocap_stop():
     return jsonify({"status": "not_running"})
 
 
-@app.route("/analyze", methods=["POST"])
-def analyze():
-    """
-    Full pipeline: load patient file → extract scalars → scale template → DTW.
+@app.route("/files/patient", methods=["GET"])
+def list_patient_files():
+    """Returns list of all recorded patient Excel files."""
+    if not os.path.exists(OUTPUT_FOLDER):
+        return jsonify([])
+    files = [f for f in os.listdir(OUTPUT_FOLDER) if f.endswith(".xlsx")]
+    return jsonify(files)
 
-    Body: {
-      "patient_file":    "right_arm_exercise_realsense_trail_1.xlsx",
-      "template_file":   "stage3_normalized_soft_dba_gi_centroid.xlsx",
-      "sensitivity":     3.0,
-      "shape_tolerance": 0.20
-    }
+@app.route("/analyze", methods=["POST"])
+def analyze_legacy():
+    """
+    Legacy single-attempt analysis endpoint.
+    Now uses weighted scoring but processes single attempt only.
     """
     data = request.get_json(force=True)
 
-    patient_file    = data.get("patient_file")
-    template_file   = data.get("template_file")
-    sensitivity     = float(data.get("sensitivity",     3.0))
+    patient_file = data.get("patient_file")
+    template_file = data.get("template_file")
+    exercise_type = data.get("exercise_type", "eight_tracing")
+    sensitivity = float(data.get("sensitivity", 3.0))
     shape_tolerance = float(data.get("shape_tolerance", 0.20))
 
     if not patient_file or not template_file:
         return jsonify({"error": "patient_file and template_file are required"}), 400
 
-    pat_path = os.path.join(OUTPUT_FOLDER,    patient_file)
+    pat_path = os.path.join(OUTPUT_FOLDER, patient_file)
     ref_path = os.path.join(TEMPLATES_FOLDER, template_file)
 
     if not os.path.exists(pat_path):
         return jsonify({"error": f"Patient file not found: {patient_file}"}), 404
     if not os.path.exists(ref_path):
-        return jsonify({"error": f"Template file not found: {template_file}"}), 404
+        ref_path = os.path.join(CAPSTONE_TEMPLATES, template_file)
+        if not os.path.exists(ref_path):
+            return jsonify({"error": f"Template file not found: {template_file}"}), 404
 
     try:
-        # shoulder_origin.py already produces all normalized columns
-        # (wrist_normalized_x/y/z, Shoulder_x/y/z, total_arm_length, etc.)
-        # so it is equivalent to capture.py + normalize.py in the friend's pipeline.
-        # pat_path is therefore treated as the "normalized" file for scaling.
-
-        # ── Temp working directory for intermediate files ──────────────────────
         temp_dir = os.path.join(OUTPUT_FOLDER, "_temp_pipeline")
         os.makedirs(temp_dir, exist_ok=True)
 
-        # ── Step 1: Filter patient data (matches main_pipeline Stage 3) ───────
-        # filter_motion runs on the shoulder_origin output (already normalized).
-        # Only wrist_normalized_x/y/z are modified; all other columns preserved.
         filtered_path = filter_motion(pat_path, temp_dir)
-
-        # ── Step 2: Scale template (matches main_pipeline Stage 4) ────────────
-        # CRITICAL: scale uses the NORMALIZED file (pat_path = shoulder_origin
-        # output), NOT the filtered file. This matches main_pipeline.py exactly:
-        #   scaled_template_path = scale(template, patient_normalized_path=normalized_path)
-        # The shoulder/arm-length scalars must come from the unfiltered file
-        # because filtering only touches wrist_normalized_x/y/z — the Shoulder
-        # and arm-length columns are identical in both files, but using pat_path
-        # is correct by definition and matches the friend's pipeline.
         scaled_template_path = scale_template_file(
             template_path=ref_path,
-            patient_normalized_path=pat_path,   # normalized = shoulder_origin output
+            patient_normalized_path=pat_path,
             output_dir=temp_dir,
         )
 
-        # ── Step 3: Load data for scoring (matches main_pipeline Stage 5) ─────
-        # score_movement(patient_filtered_path=filtered_path,
-        #                template_scaled_path=scaled_template_path)
-        # _extract_patient_global_trajectory_from_filtered reconstructs global
-        # wrist coords from: wrist_normalized * total_arm_length + Shoulder_mean
-        from score import (
-            _extract_patient_global_trajectory_from_filtered,
-            _require_columns,
-            TEMPLATE_COLS,
+        # Get weights for this exercise
+        weights = get_exercise_weights(exercise_type)
+
+        # Use new scoring system
+        result = score_movement(
+            patient_filtered_path=filtered_path,
+            template_scaled_path=scaled_template_path,
+            output_dir=temp_dir,
+            velocity_buffer_pct=0.10,
+            weights=weights
         )
-
-        pat_df = pd.read_excel(filtered_path)
-        ref_df = pd.read_excel(scaled_template_path)
-
-        _require_columns(ref_df, TEMPLATE_COLS, "Scaled template")
-        ref_df_clean = ref_df.dropna(subset=TEMPLATE_COLS)
-        ref_data = ref_df_clean[TEMPLATE_COLS].to_numpy(dtype=float)
-        pat_data, pat_source = _extract_patient_global_trajectory_from_filtered(pat_df)
-
-        # ── DIAGNOSTICS ───────────────────────────────────────────────────────
-        print("=" * 55)
-        print("ANALYSIS DIAGNOSTICS")
-        print("=" * 55)
-        print(f"Patient file    : {patient_file}")
-        print(f"Template file   : {template_file}")
-        print(f"Filtered file   : {filtered_path}")
-        print(f"Scaled template : {scaled_template_path}")
-        print(f"Patient source  : {pat_source}")
-        print(f"Patient rows    : {len(pat_data)}  Template rows: {len(ref_data)}")
-        print(f"Patient  range X: {pat_data[:,0].min():.4f} to {pat_data[:,0].max():.4f}  (ptp={np.ptp(pat_data[:,0]):.4f})")
-        print(f"Patient  range Y: {pat_data[:,1].min():.4f} to {pat_data[:,1].max():.4f}  (ptp={np.ptp(pat_data[:,1]):.4f})")
-        print(f"Patient  range Z: {pat_data[:,2].min():.4f} to {pat_data[:,2].max():.4f}  (ptp={np.ptp(pat_data[:,2]):.4f})")
-        print(f"Template range X: {ref_data[:,0].min():.4f} to {ref_data[:,0].max():.4f}  (ptp={np.ptp(ref_data[:,0]):.4f})")
-        print(f"Template range Y: {ref_data[:,1].min():.4f} to {ref_data[:,1].max():.4f}  (ptp={np.ptp(ref_data[:,1]):.4f})")
-        print(f"Template range Z: {ref_data[:,2].min():.4f} to {ref_data[:,2].max():.4f}  (ptp={np.ptp(ref_data[:,2]):.4f})")
-        print("=" * 55)
-
-        # ── Step 4: ROM metrics ───────────────────────────────────────────────
-        rom_ratio, rom_ratios = calculate_rom_metrics(ref_data, pat_data)
-        rom_axis_grades = [get_rom_grade(float(r)) for r in rom_ratios]
-        avg_rom_grade   = int(round(float(np.mean(rom_axis_grades))))
-
-        # ── Step 5: DTW score + shape grade + axis RMSE ───────────────────────
-        # Single call — no double computation.
-        score, global_rmse, axis_rmse, ref_centered, pat_centered =             calculate_mdtw_with_sensitivity(ref_data, pat_data, sensitivity)
-        shape_grade = get_shape_grade(global_rmse, shape_tolerance)
-
-        # ── Step 6: SPARC smoothness analysis ────────────────────────────────
-        analyzer      = MovementAnalyzer()
-        sparc_metrics = analyzer.compare_performances(ref_data, pat_data, use_filter=True)
-
-        ref_s = sparc_metrics["Reference"]
-        pat_s = sparc_metrics["Patient"]
-
-        def _sparc_grade(pat_val, ref_val):
-            if ref_val == 0: return 0
-            ratio = pat_val / ref_val
-            if ratio >= 1.00: return 10
-            if ratio >= 0.95: return 9
-            if ratio >= 0.85: return 8
-            if ratio >= 0.70: return 7
-            if ratio >= 0.50: return 6
-            return 0
-
-        sparc_grade_total = _sparc_grade(pat_s["Total_SPARC"],    ref_s["Total_SPARC"])
-        sparc_grade_low   = _sparc_grade(pat_s["Low_Band_SPARC"], ref_s["Low_Band_SPARC"])
-        sparc_grade_high  = _sparc_grade(pat_s["High_Band_SPARC"],ref_s["High_Band_SPARC"])
-
-        # ── Step 7: Report ────────────────────────────────────────────────────
-        report_text = generate_therapist_report(
-            rom_ratio=rom_ratio,
-            avg_rom_grade=avg_rom_grade,
-            rom_axis_grades=rom_axis_grades,
-            rom_ratios=rom_ratios,
-            global_rmse=global_rmse,
-            shape_grade=shape_grade,
-            axis_rmse=axis_rmse,
-            shape_limit=shape_tolerance,
-        )
-
-        # Get patient feedback from SPARC for the JSON response
-        from score import print_patient_feedback
-        patient_feedback = print_patient_feedback(sparc_metrics)
-        
-        # Keep therapist report separate from patient feedback
-        full_report = report_text
-
-        # ── Step 8: Plot ──────────────────────────────────────────────────────
-        plot_b64 = build_comparison_figure(
-            ref_centered, pat_centered, score, full_report,
-            sparc_metrics=sparc_metrics,
-        )
-
-        # ── Step 9: Encode Excel file to base64 ──────────────────────────────
-        excel_b64 = excel_file_to_base64(pat_path)
 
         return jsonify({
-            "score":           score,
-            "global_rmse":     round(float(global_rmse), 4),
-            "axis_rmse":       {
-                "x": round(float(axis_rmse[0]), 4),
-                "y": round(float(axis_rmse[1]), 4),
-                "z": round(float(axis_rmse[2]), 4),
-            },
-            "rom_ratio":       round(float(rom_ratio), 4),
-            "rom_ratios":      {
-                "x": round(float(rom_ratios[0]), 4),
-                "y": round(float(rom_ratios[1]), 4),
-                "z": round(float(rom_ratios[2]), 4),
-            },
-            "rom_axis_grades":  rom_axis_grades,
-            "avg_rom_grade":    avg_rom_grade,
-            "shape_grade":      shape_grade,
-            "sparc": {
-                "total":              round(float(pat_s["Total_SPARC"]),              4),
-                "low_band":           round(float(pat_s["Low_Band_SPARC"]),           4),
-                "high_band":          round(float(pat_s["High_Band_SPARC"]),          4),
-                "velocity_rmse":      round(float(pat_s["Velocity_RMSE"]),            4),
-                "peak_velocity":      round(float(pat_s["Peak_Velocity"]),            4),
-                "ref_total":          round(float(ref_s["Total_SPARC"]),              4),
-                "velocity_lag_frames":int(pat_s["Velocity_Peak_Lag_Frames"]),
-                "velocity_lag_seconds":round(float(pat_s["Velocity_Peak_Lag_Seconds"]), 3),
-                "sudden_peak_count":  int(pat_s["Sudden_Peak_Count"]),
-                "sudden_drop_count":  int(pat_s["Sudden_Drop_Count"]),
-            },
-            "sparc_grades": {
-                "total":      sparc_grade_total,
-                "choppiness": sparc_grade_low,
-                "tremor":     sparc_grade_high,
-            },
-            "patient_feedback": patient_feedback,
-            "report_text":      full_report,
-            "plot_image_b64":   plot_b64,
-            "patient_file":     patient_file,
-            "template_file":    template_file,
-            "excel_file_b64":   excel_b64,
+            "score": result["final_score"],
+            "global_score": result["final_score"],  # New field
+            "global_rmse": result["global_rmse"],
+            "axis_rmse": result.get("axis_rmse", {}),
+            "rom_ratio": result.get("rom_ratio", 0),
+            "rom_ratios": result.get("rom_ratios", {}),
+            "rom_axis_grades": result.get("rom_axis_grades", []),
+            "avg_rom_grade": result.get("avg_rom_grade", 0),
+            "shape_grade": result.get("shape_grade", 0),
+            "sparc": result.get("sparc", {}),
+            "weighted_components": result.get("weighted_components", {}),
+            "report_text": result.get("report_text", ""),
+            "plot_image_b64": result.get("plot_image_b64", ""),
+            "exercise_type": exercise_type,
+            "num_attempts": 1  # Legacy single-attempt
         })
 
     except Exception as e:
         import traceback
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
-
-
-@app.route("/files/patient", methods=["GET"])
-def list_patient_files():
-    if not os.path.exists(OUTPUT_FOLDER):
-        return jsonify({"files": []})
-    files = sorted(
-        [f for f in os.listdir(OUTPUT_FOLDER) if f.endswith(".xlsx")],
-        reverse=True
-    )
-    return jsonify({"files": files})
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "healthy"})
-
-
-@app.route("/templates", methods=["GET"])
-def list_templates_route():
-    if not os.path.exists(TEMPLATES_FOLDER):
-        return jsonify({"templates": []})
-    files = sorted(
-        [f for f in os.listdir(TEMPLATES_FOLDER) if f.endswith(".xlsx")],
-        reverse=True
-    )
-    return jsonify({"templates": files})
-
-
-@app.route("/mocap/unity_start", methods=["POST"])
-def mocap_unity_start():
-    global _mocap_process, _mocap_status
-    if _mocap_process and _mocap_process.poll() is None:
-        return jsonify({"error": "Recording already in progress"}), 400
-
-    data     = request.get_json(force=True)
-    duration = float(data.get("duration", 8))
-    grace    = float(data.get("grace",    6))
-    exercise = data.get("exercise", "exercise")
-    arm      = data.get("arm",      MOCAP_ARM)
-    trail    = data.get("trail",    "trail_1")
-
-    _mocap_status = {
-        "state":   "grace",
-        "message": f"Launching Unity Game and Camera...",
-        "output_file": None,
-    }
-    
-    unity_exe_path = os.path.join(os.path.dirname(__file__), "UnityPipeline", "Builds", "Body control 3D model.exe")
-    
-    def run():
-        global _mocap_process, _mocap_status
-        unity_proc = None
-        if os.path.exists(unity_exe_path):
-            unity_proc = subprocess.Popen([unity_exe_path])
-        else:
-            print(f"[Unity Launch] Warning: Executable not found at {unity_exe_path}")
-            
-        try:
-            env = os.environ.copy()
-            env["MOCAP_CAMERA"]      = "realsense"
-            env["MOCAP_ARM"]         = arm
-            env["MOCAP_DURATION"]    = str(duration)
-            env["MOCAP_GRACE"]       = str(grace)
-            env["MOCAP_EXERCISE"]    = exercise
-            env["MOCAP_TRAIL"]       = trail
-            env["MOCAP_OUTPUT_DIR"]  = OUTPUT_FOLDER
-            env["MOCAP_MODEL_PATH"]  = MOCAP_MODEL_PATH
-            env["MOCAP_UDP_STREAM"]  = "true"
-
-            _mocap_process = subprocess.Popen(
-                [sys.executable, MOCAP_SCRIPT],
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = _mocap_process.communicate()
-
-            stdout_str = stdout.decode("utf-8", errors="replace")
-            stderr_str = stderr.decode("utf-8", errors="replace")
-
-            if stdout_str.strip():
-                print("[MOCAP STDOUT]\n" + stdout_str)
-            if stderr_str.strip():
-                print("[MOCAP STDERR]\n" + stderr_str)
-
-            excel_saved_in_stdout = "Excel Saved" in stdout_str
-            output_file = latest_file_in(OUTPUT_FOLDER)
-            succeeded = (
-                _mocap_process.returncode == 0
-                or (excel_saved_in_stdout and output_file is not None)
-            )
-
-            if succeeded:
-                _mocap_status = {
-                    "state":       "done",
-                    "message":     "Unity Session Recording complete. Ready to analyze.",
-                    "output_file": os.path.basename(output_file) if output_file else None,
-                    "stdout":      stdout_str,
-                    "stderr":      stderr_str,
-                }
-            else:
-                _mocap_status = {
-                    "state":   "error",
-                    "message": "Unity pipeline failed or cancelled.",
-                    "stdout":  stdout_str,
-                    "stderr":  stderr_str,
-                }
-        except Exception as e:
-            _mocap_status = {
-                "state":   "error",
-                "message": f"Server crash: {str(e)}"
-            }
-        finally:
-            if unity_proc:
-                try:
-                    unity_proc.terminate()
-                    unity_proc.wait(timeout=2)
-                except:
-                    try:
-                        unity_proc.kill()
-                    except:
-                        pass
-
-    threading.Thread(target=run).start()
-    return jsonify({"status": "starting", "message": "Starting Unity game & motion capture..."})
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  PhysioSync Backend  —  http://localhost:5050")
+    print("PhysioSync Local Backend")
     print("=" * 60)
-    print(f"  Mocap script  : {MOCAP_SCRIPT}")
-    print(f"  Model path    : {MOCAP_MODEL_PATH}")
-    print(f"  Templates     : {TEMPLATES_FOLDER}")
-    print(f"  Output folder : {OUTPUT_FOLDER}")
-    print()
-    print("  TEMPLATES folder: put your normalized template .xlsx files here")
-    print("  OUTPUT folder:    recorded files appear here after each session")
-    print()
-    if not os.path.exists(MOCAP_MODEL_PATH):
-        print("  WARNING: MOCAP_MODEL_PATH not found. Edit server.py line 38.")
+    print(f"Output folder:    {OUTPUT_FOLDER}")
+    print(f"Templates folder: {TEMPLATES_FOLDER}")
+    print(f"Scoring weights:  {SCORING_WEIGHTS}")
+    print(f"Capture module:   capture.py (in-process, gesture_enabled=False)")
     print("=" * 60)
-    os.makedirs(TEMPLATES_FOLDER, exist_ok=True)
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-    app.run(host="0.0.0.0", port=5050, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=True)

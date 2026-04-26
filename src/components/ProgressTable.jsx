@@ -1,315 +1,174 @@
-// components/ProgressTable.jsx
-import * as XLSX from "xlsx";
-import { useState, useRef, useEffect } from "react";
-import { deleteAnalysisResult, deleteSession } from "../firebase/db";
-import PatientProgress from "./PatientProgress";
+/**
+ * ProgressTable.jsx - Multi-Attempt Analysis Records
+ * Shows per-session scores (all out of 10) and both session plots.
+ */
 
-function scoreColor(score) {
-  if (score >= 80) return "#00e5c3";
-  if (score >= 50) return "#0090ff";
-  return "#ff4b6e";
-}
+import React, { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import './ProgressTable.css';
 
-function DeleteConfirm({ onConfirm, onCancel, label }) {
-  return (
-    <div className="delete-confirm">
-      <span>Delete this {label}?</span>
-      <button className="btn-delete-confirm" onClick={onConfirm}>Delete</button>
-      <button className="btn-delete-cancel" onClick={onCancel}>Cancel</button>
-    </div>
-  );
-}
+const SCORE_COMPONENTS = [
+  { key: 'global_score',        label: 'Global' },
+  { key: 'dtw_score',           label: 'DTW' },
+  { key: 'som_grade',           label: 'SoM' },
+  { key: 'rom_grade',           label: 'ROM' },
+  { key: 'tempo_control_grade', label: 'Tempo' },
+  { key: 'hesitation_grade',    label: 'Hesitation' },
+  { key: 'tremor_grade',        label: 'Tremor' },
+];
 
-export default function ProgressTable({
-  patient,
-  sessions,
-  analyses = [],
-  loading,
-  patients,
-  onSelectPatient,
-  onAnalysisDeleted,
-  onSessionDeleted,
-}) {
-  const [activeTab, setActiveTab]     = useState("analyses");
-  const [expandedId, setExpandedId]   = useState(null);
-  const [deletingId, setDeletingId]   = useState(null);
-  const [deleteType, setDeleteType]   = useState(null);
-  const [deleteError, setDeleteError] = useState("");
-  const [scrollToId, setScrollToId]   = useState(null);  // id to scroll to after tab switch
-  const [selectedPlotImage, setSelectedPlotImage] = useState(null);  // for modal view
-  const cardRefs = useRef({});  // map of analysis id → DOM element
+export default function ProgressTable({ analysisResults = [], loading = false }) {
+  const [expandedRows, setExpandedRows] = useState(new Set());
 
-  // When tab switches to "analyses" and scrollToId is set, scroll to that card
-  useEffect(() => {
-    if (activeTab === "analyses" && scrollToId) {
-      const el = cardRefs.current[scrollToId];
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-      setScrollToId(null);
-    }
-  }, [activeTab, scrollToId]);
-
-  // Called when a chart dot is clicked in PatientProgress
-  const handleSelectSession = (id) => {
-    setExpandedId(id);      // expand that card
-    setScrollToId(id);      // trigger scroll after tab switch
-    setActiveTab("analyses"); // switch to the analyses tab
+  const toggle = (id) => {
+    const s = new Set(expandedRows);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setExpandedRows(s);
   };
 
-  const exportXLSX = () => {
-    const rows = analyses.map((a) => ({
-      Date:             a.createdAt?.toDate?.().toLocaleDateString() ?? "—",
-      Exercise:         a.exerciseName,
-      "Recording File": a.recordingFile ?? "—",
-      Score:            a.score,
-      "ROM Grade":      a.avg_rom_grade ? Math.round(a.avg_rom_grade) : "—",
-      "Shape Grade":    a.shape_grade ?? "—",
-      "Global RMSE":    a.global_rmse,
-      "ROM Ratio %":    a.rom_ratio ? (a.rom_ratio * 100).toFixed(1) : "—",
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Analysis Results");
-    XLSX.writeFile(wb, `${patient?.name ?? "patient"}_analyses.xlsx`);
+  const scoreColor = (s) => {
+    const n = Number(s);
+    if (n >= 7) return '#00e5c3';
+    if (n >= 4) return '#f39c12';
+    return '#ff4b6e';
   };
 
-  const handleDeleteAnalysis = async (id) => {
-    setDeleteError("");
-    try {
-      await deleteAnalysisResult(id);
-      onAnalysisDeleted?.(id);
-      setDeletingId(null);
-      if (expandedId === id) setExpandedId(null);
-    } catch (e) {
-      setDeleteError("Failed to delete: " + e.message);
-    }
+  const formatDate = (ts) => {
+    if (!ts) return 'N/A';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleDeleteSession = async (id) => {
-    setDeleteError("");
-    try {
-      await deleteSession(id);
-      onSessionDeleted?.(id);
-      setDeletingId(null);
-    } catch (e) {
-      setDeleteError("Failed to delete: " + e.message);
-    }
-  };
-
-  const downloadExcelFile = (analysis) => {
-    if (!analysis.excel_file_b64) {
-      alert("Excel file not available for this record.");
-      return;
-    }
-    try {
-      // Convert base64 to blob
-      const binaryString = atob(analysis.excel_file_b64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      
-      // Trigger download
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = analysis.patientFile;  // Use the original timestamped filename
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (e) {
-      alert("Failed to download Excel file: " + e.message);
-    }
-  };
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: '40px' }}><div className="spinner" /></div>;
+  }
 
   return (
-    <div className="records-view">
-      <div className="records-header">
-        <div>
-          <h1>Patient Records</h1>
-          {patient && <p className="subtitle">Showing records for <strong>{patient.name}</strong></p>}
-        </div>
-        <div className="records-actions">
-          <select
-            value={patient?.id || ""}
-            onChange={(e) => {
-              const p = patients?.find((p) => p.id === e.target.value);
-              if (p) onSelectPatient(p);
-            }}
-          >
-            <option value="">Switch Patient</option>
-            {patients?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <button className="btn-export" onClick={exportXLSX} disabled={!analyses.length}>
-            Export XLSX
-          </button>
-        </div>
-      </div>
+    <div className="progress-table-container">
+      <h2>Session History</h2>
 
-      {deleteError && (
-        <div className="pipeline-error" style={{ marginBottom: 16 }}>{deleteError}</div>
-      )}
+      <table className="progress-table">
+        <thead>
+          <tr>
+            <th className="expand-col" />
+            <th className="date-col">Date</th>
+            <th className="exercise-col">Exercise</th>
+            <th>Global</th>
+            <th>DTW</th>
+            <th>SoM</th>
+            <th>ROM</th>
+            <th>Tempo</th>
+            <th>Hesitation</th>
+            <th>Tremor</th>
+            <th>Attempts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {analysisResults.length === 0 ? (
+            <tr>
+              <td colSpan="11" className="empty-message">No analysis results yet</td>
+            </tr>
+          ) : (
+            analysisResults.map((rec) => {
+              const expanded = expandedRows.has(rec.id);
+              return (
+                <React.Fragment key={rec.id}>
+                  <tr className="data-row">
+                    <td className="expand-col">
+                      <button className="expand-btn" onClick={() => toggle(rec.id)} aria-expanded={expanded}>
+                        {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                      </button>
+                    </td>
+                    <td className="date-col">{formatDate(rec.createdAt)}</td>
+                    <td className="exercise-col">
+                      <span className="exercise-name">{rec.exerciseName || rec.exercise_type || 'Unknown'}</span>
+                    </td>
+                    {SCORE_COMPONENTS.map(({ key }) => (
+                      <td key={key} style={{ textAlign: 'center', fontWeight: '700', color: scoreColor(rec[key] ?? 0) }}>
+                        {Number(rec[key] ?? 0).toFixed(1)}
+                      </td>
+                    ))}
+                    <td style={{ textAlign: 'center' }}>{rec.num_attempts || 1}</td>
+                  </tr>
 
-      <div className="record-tabs">
-        <button
-          className={activeTab === "analyses" ? "active" : ""}
-          onClick={() => setActiveTab("analyses")}
-        >
-          Analysis Results {analyses.length > 0 && <span className="tab-badge">{analyses.length}</span>}
-        </button>
-        <button
-          className={activeTab === "progress" ? "active" : ""}
-          onClick={() => setActiveTab("progress")}
-        >
-          Progress Report {analyses.length >= 3 && <span className="tab-badge">Ready</span>}
-        </button>
-      </div>
+                  {expanded && (
+                    <tr className="detail-row">
+                      <td colSpan="11">
+                        <div className="detail-content">
 
-      {loading ? (
-        <div className="loading-state">Loading records…</div>
-      ) : (
-        <>
-          {/* Analysis Results Tab */}
-          {activeTab === "analyses" && (
-            analyses.length === 0 ? (
-              <div className="empty-state">
-                No analysis results yet. Run an analysis from the Run Analysis tab.
-              </div>
-            ) : (
-              <div className="analysis-list">
-                {analyses.map((a) => (
-                  <div key={a.id} className="analysis-card" ref={(el) => { cardRefs.current[a.id] = el; }}>
-
-                    <div className="analysis-card-header">
-                      <div
-                        className="analysis-header-clickable"
-                        onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}
-                      >
-                        <div className="analysis-left">
-                          <span className="exercise-badge">{a.exerciseName}</span>
-                          <span className="analysis-date">
-                            {a.createdAt?.toDate?.().toLocaleDateString() ?? "—"}
-                          </span>
-                          {a.recordingFile && (
-                            <span className="recording-filename" title={a.recordingFile}>
-                              {a.recordingFile}
-                            </span>
+                          {/* Per-attempt scores */}
+                          {rec.per_attempt_scores?.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                              <h4 style={{ marginBottom: '10px' }}>Per-Attempt Global Scores</h4>
+                              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                {rec.per_attempt_scores.map((s, idx) => (
+                                  <div key={idx} style={{
+                                    flex: '1 1 80px', textAlign: 'center', padding: '10px',
+                                    background: 'rgba(255,255,255,0.05)', borderRadius: '8px'
+                                  }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Attempt {idx + 1}</div>
+                                    <div style={{ fontSize: '22px', fontWeight: '700', color: scoreColor(s) }}>{Number(s).toFixed(1)}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>/10</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           )}
-                        </div>
-                        <div className="analysis-center">
-                          <span className="analysis-score" style={{ color: scoreColor(a.score) }}>
-                            {a.score}/100
-                          </span>
-                          <span className="analysis-score-label">Score</span>
-                        </div>
-                        <div className="analysis-grades">
-                          <span className="mini-grade">
-                            ROM: <b>{a.avg_rom_grade ? Math.round(a.avg_rom_grade) : "—"}/10</b>
-                          </span>
-                          <span className="mini-grade">
-                            Shape: <b>{a.shape_grade ?? "—"}/10</b>
-                          </span>
-                          {a.sparc_grades && (
-                            <span className="mini-grade">
-                              Smooth: <b>{a.sparc_grades.total}/10</b>
-                            </span>
+
+                          {/* Progression */}
+                          {rec.attempt_progression && (
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                              {[['Avg Score', rec.attempt_progression.avg_score],
+                                ['Best', rec.attempt_progression.best_attempt],
+                                ['Worst', rec.attempt_progression.worst_attempt],
+                                ['Trend', rec.attempt_progression.trend]].map(([lbl, val]) => (
+                                <div key={lbl} style={{
+                                  padding: '8px 16px', background: 'rgba(255,255,255,0.05)',
+                                  borderRadius: '8px', textAlign: 'center', minWidth: '90px'
+                                }}>
+                                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lbl}</div>
+                                  <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px' }}>
+                                    {typeof val === 'number' ? Number(val).toFixed(2) : val}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           )}
-                        </div>
-                        <button className="expand-btn">
-                          {expandedId === a.id ? "▲" : "▼"}
-                        </button>
-                      </div>
 
-                      <div className="card-delete-area" onClick={(e) => e.stopPropagation()}>
-                        {a.excel_file_b64 && (
-                          <button 
-                            className="btn-download"
-                            onClick={() => downloadExcelFile(a)}
-                            title="Download motion capture data"
-                          >
-                            📥 Excel
-                          </button>
-                        )}
-                        {deletingId === a.id && deleteType === "analysis" ? (
-                          <DeleteConfirm
-                            label="analysis"
-                            onConfirm={() => handleDeleteAnalysis(a.id)}
-                            onCancel={() => setDeletingId(null)}
-                          />
-                        ) : (
-                          <button
-                            className="btn-delete"
-                            onClick={() => {
-                              setDeletingId(a.id);
-                              setDeleteType("analysis");
-                              setDeleteError("");
-                            }}
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {expandedId === a.id && (
-                      <div className="analysis-card-body">
-                        {a.recordingFile && (
-                          <div className="recording-info-bar">
-                            <span className="recording-info-label">Recording file</span>
-                            <code className="recording-info-path">{a.recordingFile}</code>
-                          </div>
-                        )}
-                        <div className="analysis-details-grid">
-                          <div>
-                            <h4>Therapist Report</h4>
-                            <pre className="report-pre small">{a.report_text}</pre>
-                          </div>
-                          <div>
-                            <h4>Motion Capture Plot</h4>
-                            {a.plot_image_b64 ? (
+                          {/* Session Attempts Plot */}
+                          {rec.session_attempts_plot_b64 && (
+                            <div style={{ marginBottom: '16px' }}>
+                              <h4 style={{ marginBottom: '8px' }}>Session Attempts — 3D Trajectory Overview</h4>
                               <img
-                                src={`data:image/png;base64,${a.plot_image_b64}`}
-                                alt="DTW plot"
-                                className="result-plot full-plot"
-                                onClick={() => setSelectedPlotImage(`data:image/png;base64,${a.plot_image_b64}`)}
-                                style={{ cursor: "pointer" }}
-                                title="Click to view full size"
+                                src={`data:image/png;base64,${rec.session_attempts_plot_b64}`}
+                                alt="Session attempts plot"
+                                style={{ width: '100%', borderRadius: '8px' }}
                               />
-                            ) : (
-                              <p className="muted">No plot saved.</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )
-          )}
-          {/* Progress Report Tab */}
-          {activeTab === "progress" && (
-            <PatientProgress
-              analyses={analyses}
-              patientName={patient?.name ?? "Patient"}
-              onSelectSession={handleSelectSession}
-            />
-          )}
-        </>
-      )}
+                            </div>
+                          )}
 
-      {/* Modal for full-size plot image */}
-      {selectedPlotImage && (
-        <div className="plot-modal" onClick={() => setSelectedPlotImage(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setSelectedPlotImage(null)}>✕</button>
-            <img src={selectedPlotImage} alt="Full plot" className="full-plot-image" />
-          </div>
-        </div>
-      )}
+                          {/* Global Report Plot */}
+                          {rec.global_report_plot_b64 && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <h4 style={{ marginBottom: '8px' }}>Global Report — Score Breakdown</h4>
+                              <img
+                                src={`data:image/png;base64,${rec.global_report_plot_b64}`}
+                                alt="Global report"
+                                style={{ width: '100%', borderRadius: '8px' }}
+                              />
+                            </div>
+                          )}
+
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

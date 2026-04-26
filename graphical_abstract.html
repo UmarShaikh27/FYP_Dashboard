@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gamified Assistive Physiotherapy System – Graphical Abstract</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Barlow+Condensed:wght@600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: #f0f2f5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  .poster {
+    width: 1200px;
+    background: #ffffff;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: #0a1628;
+    padding: 20px 36px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .header-left { flex: 1; }
+  .project-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+    line-height: 1.15;
+    text-transform: uppercase;
+  }
+  .project-title span { color: #00e5c3; }
+  .header-meta {
+    margin-top: 7px;
+    font-size: 13px;
+    color: #8899bb;
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+  }
+  .header-meta strong { color: #c0cfe8; font-weight: 600; }
+  .header-right {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .institution {
+    font-size: 13px;
+    font-weight: 700;
+    color: #00e5c3;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .dept {
+    font-size: 11px;
+    color: #8899bb;
+    margin-top: 3px;
+    letter-spacing: 0.8px;
+  }
+  .sdg-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    justify-content: flex-end;
+  }
+  .sdg {
+    width: 26px; height: 26px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+  }
+
+  /* ── BODY ── */
+  .body { padding: 28px 36px 24px; background: #f7f9fc; }
+
+  /* pipeline row */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+
+  .icon-box {
+    width: 112px; height: 112px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .icon-box svg { width: 64px; height: 64px; }
+
+  .stage-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: #0a1628;
+    text-align: center;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .stage-sub {
+    font-size: 11px;
+    color: #667;
+    text-align: center;
+    line-height: 1.35;
+    margin-top: -6px;
+    max-width: 110px;
+  }
+
+  /* arrow */
+  .arrow {
+    flex-shrink: 0;
+    width: 40px;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 34px;
+  }
+  .arrow svg { width: 40px; height: 26px; }
+
+  /* colour palette for icon boxes */
+  .c-teal    { background: #e0faf5; }
+  .c-blue    { background: #e6f1fb; }
+  .c-amber   { background: #fef3e2; }
+  .c-green   { background: #eaf6ee; }
+  .c-purple  { background: #f0eeff; }
+  .c-coral   { background: #fff0ed; }
+
+  /* ── BOTTOM ROW ── */
+  .bottom-row {
+    display: flex;
+    gap: 16px;
+    margin-top: 22px;
+  }
+
+  .outcome-box {
+    background: #0a1628;
+    border-radius: 10px;
+    padding: 16px 22px;
+    flex: 2;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .outcome-icon { font-size: 28px; flex-shrink: 0; }
+  .outcome-text h3 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #00e5c3;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .outcome-text p {
+    font-size: 12px;
+    color: #c0cfe8;
+    line-height: 1.5;
+  }
+
+  .tech-box {
+    background: #ffffff;
+    border: 1.5px solid #dde4f0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    flex: 3;
+  }
+  .tech-box h3 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #0a1628;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .tech-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.3px;
+  }
+  .chip-teal   { background: #e0faf5; color: #0f6e56; }
+  .chip-blue   { background: #e6f1fb; color: #185fa5; }
+  .chip-amber  { background: #fef3e2; color: #854f0b; }
+  .chip-purple { background: #f0eeff; color: #534ab7; }
+  .chip-gray   { background: #f1efe8; color: #444441; }
+
+  .sdg-box {
+    background: #ffffff;
+    border: 1.5px solid #dde4f0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sdg-box h3 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #0a1628;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .sdg-big {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .sdg-badge {
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="project-title">Gamified Assistive<br><span>Physiotherapy System</span></div>
+      <div class="header-meta">
+        <span><strong>Members:</strong> Umar Habib &nbsp;·&nbsp; Shahmir Chaudhary</span>
+        <span><strong>Advisor:</strong> Dr. Tariq Mumtaz</span>
+        <span><strong>Dept:</strong> Electrical &amp; Computer Engineering &nbsp;·&nbsp; Habib University</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="institution">Habib University</div>
+      <div class="dept">Capstone Design · EE 492</div>
+      <div class="sdg-row">
+        <div class="sdg" style="background:#4c9f38;">3</div>
+        <div class="sdg" style="background:#ff3a21;">8</div>
+        <div class="sdg" style="background:#fd6925;">9</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- PIPELINE ROW -->
+    <div class="pipeline">
+
+      <!-- Stage 1: Patient performs exercise -->
+      <div class="stage">
+        <div class="icon-box c-teal">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- person standing, arms raised -->
+            <circle cx="32" cy="12" r="6" fill="#1d9e75" opacity="0.9"/>
+            <line x1="32" y1="18" x2="32" y2="40" stroke="#1d9e75" stroke-width="3.5" stroke-linecap="round"/>
+            <!-- arms raised (exercise pose) -->
+            <line x1="32" y1="26" x2="16" y2="18" stroke="#1d9e75" stroke-width="3" stroke-linecap="round"/>
+            <line x1="32" y1="26" x2="48" y2="18" stroke="#1d9e75" stroke-width="3" stroke-linecap="round"/>
+            <!-- legs apart -->
+            <line x1="32" y1="40" x2="20" y2="54" stroke="#1d9e75" stroke-width="3" stroke-linecap="round"/>
+            <line x1="32" y1="40" x2="44" y2="54" stroke="#1d9e75" stroke-width="3" stroke-linecap="round"/>
+            <!-- camera icon bottom right -->
+            <rect x="40" y="44" width="18" height="14" rx="3" fill="#0f6e56" opacity="0.25"/>
+            <rect x="41" y="45" width="16" height="12" rx="2.5" fill="none" stroke="#0f6e56" stroke-width="1.5"/>
+            <circle cx="49" cy="51" r="3.5" fill="none" stroke="#0f6e56" stroke-width="1.5"/>
+            <rect x="55" y="48" width="2" height="5" rx="1" fill="#0f6e56" stroke-width="0"/>
+          </svg>
+        </div>
+        <div class="stage-label">Patient Exercise</div>
+        <div class="stage-sub">RealSense D435i depth camera captures 3D motion</div>
+      </div>
+
+      <div class="arrow">
+        <svg viewBox="0 0 40 26" fill="none"><line x1="2" y1="13" x2="34" y2="13" stroke="#cbd5e8" stroke-width="2.5"/><polyline points="26,6 34,13 26,20" stroke="#cbd5e8" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- Stage 2: 3D Motion Capture -->
+      <div class="stage">
+        <div class="icon-box c-blue">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- skeleton/skeleton dots representing pose landmark -->
+            <!-- head -->
+            <circle cx="32" cy="10" r="5" fill="none" stroke="#185fa5" stroke-width="2"/>
+            <!-- spine -->
+            <line x1="32" y1="15" x2="32" y2="36" stroke="#185fa5" stroke-width="1.8" stroke-dasharray="3 2"/>
+            <!-- shoulder line -->
+            <line x1="18" y1="22" x2="46" y2="22" stroke="#378add" stroke-width="1.8"/>
+            <!-- arms -->
+            <line x1="18" y1="22" x2="12" y2="34" stroke="#378add" stroke-width="1.8"/>
+            <line x1="46" y1="22" x2="52" y2="34" stroke="#378add" stroke-width="1.8"/>
+            <!-- hip line -->
+            <line x1="22" y1="36" x2="42" y2="36" stroke="#378add" stroke-width="1.8"/>
+            <!-- legs -->
+            <line x1="22" y1="36" x2="18" y2="52" stroke="#378add" stroke-width="1.8"/>
+            <line x1="42" y1="36" x2="46" y2="52" stroke="#378add" stroke-width="1.8"/>
+            <!-- joint dots -->
+            <circle cx="18" cy="22" r="2.5" fill="#185fa5"/>
+            <circle cx="46" cy="22" r="2.5" fill="#185fa5"/>
+            <circle cx="12" cy="34" r="2.5" fill="#185fa5"/>
+            <circle cx="52" cy="34" r="2.5" fill="#185fa5"/>
+            <circle cx="22" cy="36" r="2.5" fill="#185fa5"/>
+            <circle cx="42" cy="36" r="2.5" fill="#185fa5"/>
+            <circle cx="18" cy="52" r="2.5" fill="#185fa5"/>
+            <circle cx="46" cy="52" r="2.5" fill="#185fa5"/>
+          </svg>
+        </div>
+        <div class="stage-label">3D Pose Estimation</div>
+        <div class="stage-sub">MediaPipe landmarks · metric coordinates</div>
+      </div>
+
+      <div class="arrow">
+        <svg viewBox="0 0 40 26" fill="none"><line x1="2" y1="13" x2="34" y2="13" stroke="#cbd5e8" stroke-width="2.5"/><polyline points="26,6 34,13 26,20" stroke="#cbd5e8" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- Stage 3: Signal Processing -->
+      <div class="stage">
+        <div class="icon-box c-amber">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- raw noisy waveform top -->
+            <polyline points="6,20 12,14 16,24 19,10 22,22 25,16 28,26 31,12 34,22 37,8 40,20 43,18 46,14 50,22 56,16"
+              stroke="#ba7517" stroke-width="1.5" fill="none" opacity="0.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- arrow down -->
+            <line x1="32" y1="30" x2="32" y2="36" stroke="#ba7517" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="28,34 32,38 36,34" stroke="#ba7517" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- smooth waveform bottom -->
+            <path d="M6 50 C14 44, 20 56, 28 48 C36 40, 42 56, 50 50 C54 47 56 50 58 50"
+              stroke="#ef9f27" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="stage-label">Signal Filtering</div>
+        <div class="stage-sub">3-stage filter · normalisation · scaling</div>
+      </div>
+
+      <div class="arrow">
+        <svg viewBox="0 0 40 26" fill="none"><line x1="2" y1="13" x2="34" y2="13" stroke="#cbd5e8" stroke-width="2.5"/><polyline points="26,6 34,13 26,20" stroke="#cbd5e8" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- Stage 4: DTW Evaluation -->
+      <div class="stage">
+        <div class="icon-box c-purple">
+          <!-- two trajectories being compared -->
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- template path (dashed) -->
+            <path d="M8 48 C16 30, 22 44, 30 26 C38 10, 44 30, 56 20"
+              stroke="#534ab7" stroke-width="2" fill="none" stroke-dasharray="4 2.5" stroke-linecap="round"/>
+            <!-- patient path (solid) -->
+            <path d="M8 50 C16 36, 20 46, 30 32 C40 18, 44 36, 56 26"
+              stroke="#7f77dd" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <!-- warping lines (DTW) -->
+            <line x1="20" y1="42" x2="19" y2="37" stroke="#afa9ec" stroke-width="1" stroke-dasharray="2 2"/>
+            <line x1="30" y1="32" x2="30" y2="26" stroke="#afa9ec" stroke-width="1" stroke-dasharray="2 2"/>
+            <line x1="40" y1="28" x2="40" y2="23" stroke="#afa9ec" stroke-width="1" stroke-dasharray="2 2"/>
+            <!-- legend dots -->
+            <circle cx="12" cy="58" r="3" fill="#534ab7" opacity="0.8"/>
+            <text x="17" y="62" font-size="8" fill="#534ab7" font-family="Barlow,sans-serif" font-weight="600">Template</text>
+            <circle cx="40" cy="58" r="3" fill="#7f77dd"/>
+            <text x="45" y="62" font-size="8" fill="#7f77dd" font-family="Barlow,sans-serif" font-weight="600">Patient</text>
+          </svg>
+        </div>
+        <div class="stage-label">DTW + SPARC Scoring</div>
+        <div class="stage-sub">Shape similarity · smoothness · ROM grading</div>
+      </div>
+
+      <div class="arrow">
+        <svg viewBox="0 0 40 26" fill="none"><line x1="2" y1="13" x2="34" y2="13" stroke="#cbd5e8" stroke-width="2.5"/><polyline points="26,6 34,13 26,20" stroke="#cbd5e8" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- Stage 5: Unity Game -->
+      <div class="stage">
+        <div class="icon-box c-green">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- game screen frame -->
+            <rect x="8" y="12" width="48" height="36" rx="4" stroke="#3b6d11" stroke-width="2" fill="#eaf6ee"/>
+            <!-- score bar -->
+            <rect x="14" y="17" width="36" height="5" rx="2" fill="#c0dd97"/>
+            <rect x="14" y="17" width="26" height="5" rx="2" fill="#639922"/>
+            <!-- game character (simplified) -->
+            <circle cx="32" cy="34" r="5" fill="#3b6d11" opacity="0.7"/>
+            <line x1="32" y1="39" x2="32" y2="46" stroke="#3b6d11" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="32" y1="42" x2="26" y2="38" stroke="#3b6d11" stroke-width="2" stroke-linecap="round"/>
+            <line x1="32" y1="42" x2="38" y2="38" stroke="#3b6d11" stroke-width="2" stroke-linecap="round"/>
+            <!-- star/reward -->
+            <text x="42" y="36" font-size="13" fill="#639922" font-family="sans-serif">★</text>
+            <!-- stand/screen base -->
+            <line x1="32" y1="48" x2="32" y2="54" stroke="#3b6d11" stroke-width="2" stroke-linecap="round"/>
+            <line x1="24" y1="54" x2="40" y2="54" stroke="#3b6d11" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="stage-label">Unity Game</div>
+        <div class="stage-sub">Gamified exercise · real-time visual feedback</div>
+      </div>
+
+      <div class="arrow">
+        <svg viewBox="0 0 40 26" fill="none"><line x1="2" y1="13" x2="34" y2="13" stroke="#cbd5e8" stroke-width="2.5"/><polyline points="26,6 34,13 26,20" stroke="#cbd5e8" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- Stage 6: Dashboard + Progress -->
+      <div class="stage">
+        <div class="icon-box c-coral">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- dashboard screen frame -->
+            <rect x="6" y="10" width="52" height="38" rx="4" stroke="#993c1d" stroke-width="2" fill="#fff0ed"/>
+            <!-- top bar -->
+            <rect x="6" y="10" width="52" height="9" rx="4" fill="#d85a30" opacity="0.2"/>
+            <!-- score circle -->
+            <circle cx="20" cy="30" r="9" stroke="#d85a30" stroke-width="2.5" fill="none"/>
+            <path d="M20 21 A9 9 0 0 1 26.5 36" stroke="#d85a30" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+            <text x="17" y="33" font-size="8" font-weight="700" fill="#d85a30" font-family="Barlow,sans-serif">78</text>
+            <!-- trend chart bars -->
+            <rect x="36" y="36" width="5" height="8" rx="1" fill="#d85a30" opacity="0.4"/>
+            <rect x="43" y="30" width="5" height="14" rx="1" fill="#d85a30" opacity="0.6"/>
+            <rect x="50" y="24" width="5" height="20" rx="1" fill="#d85a30" opacity="0.9"/>
+            <!-- trend line -->
+            <polyline points="38,36 45,30 52,24" stroke="#d85a30" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <!-- small labels -->
+            <rect x="36" y="18" width="20" height="4" rx="1" fill="#d85a30" opacity="0.2"/>
+            <!-- base line -->
+            <line x1="35" y1="45" x2="57" y2="45" stroke="#993c1d" stroke-width="1" opacity="0.3"/>
+          </svg>
+        </div>
+        <div class="stage-label">Dashboard &amp; Progress</div>
+        <div class="stage-sub">Scores · therapist report · longitudinal tracking</div>
+      </div>
+
+    </div><!-- end pipeline -->
+
+    <!-- BOTTOM ROW -->
+    <div class="bottom-row">
+
+      <div class="outcome-box">
+        <div class="outcome-icon">🎯</div>
+        <div class="outcome-text">
+          <h3>Clinical Outcome</h3>
+          <p>Objective, body-size-normalised rehabilitation assessment replacing subjective therapist evaluation with quantified DTW shape scores, SPARC smoothness grades, and gamified patient motivation.</p>
+        </div>
+      </div>
+
+      <div class="tech-box">
+        <h3>Technologies</h3>
+        <div class="tech-chips">
+          <span class="chip chip-teal">Intel RealSense D435i</span>
+          <span class="chip chip-blue">MediaPipe Tasks API</span>
+          <span class="chip chip-amber">Dynamic Time Warping</span>
+          <span class="chip chip-amber">SPARC Analysis</span>
+          <span class="chip chip-purple">Unity Game Engine</span>
+          <span class="chip chip-blue">React + Firebase</span>
+          <span class="chip chip-teal">Flask REST API</span>
+          <span class="chip chip-gray">Savitzky-Golay Filter</span>
+          <span class="chip chip-gray">Python · tslearn · SciPy</span>
+        </div>
+      </div>
+
+      <div class="sdg-box">
+        <h3>SDGs</h3>
+        <div class="sdg-big">
+          <div class="sdg-badge" style="background:#4c9f38;">3<br><span style="font-size:9px;font-weight:400;">Good Health</span></div>
+          <div class="sdg-badge" style="background:#ff3a21;">8<br><span style="font-size:9px;font-weight:400;">Decent Work</span></div>
+          <div class="sdg-badge" style="background:#fd6925;">9<br><span style="font-size:9px;font-weight:400;">Innovation</span></div>
+        </div>
+      </div>
+
+    </div><!-- end bottom row -->
+
+  </div><!-- end body -->
+
+</div><!-- end poster -->
+</body>
+</html>

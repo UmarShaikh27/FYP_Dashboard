@@ -1,0 +1,688 @@
+/* ProgressTable.css - Session History Table with Multi-Attempt Details */
+
+.progress-table-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 24px;
+  background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  color: #e8edf5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* Header */
+.progress-table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid rgba(0, 144, 255, 0.2);
+}
+
+.progress-table-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #00d4ff;
+  margin: 0;
+}
+
+.table-stats {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #00d4ff;
+}
+
+/* Filters & Controls */
+.table-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.filter-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px 12px;
+  background-color: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+  color: #e8edf5;
+  font-size: 13px;
+}
+
+.filter-input::placeholder {
+  color: #64748b;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: rgba(0, 212, 255, 0.5);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.2);
+}
+
+.filter-select {
+  padding: 10px 12px;
+  background-color: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+  color: #e8edf5;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: rgba(0, 212, 255, 0.5);
+}
+
+.filter-select option {
+  background-color: #1a202c;
+  color: #e8edf5;
+}
+
+/* Table Container */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.table-wrapper::-webkit-scrollbar {
+  height: 8px;
+}
+
+.table-wrapper::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: 4px;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(0, 144, 255, 0.4);
+  border-radius: 4px;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 144, 255, 0.6);
+}
+
+/* Table Styles */
+.progress-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: rgba(17, 24, 39, 0.6);
+}
+
+.progress-table thead {
+  background-color: rgba(30, 41, 59, 0.9);
+  border-bottom: 2px solid rgba(0, 144, 255, 0.2);
+}
+
+.progress-table th {
+  padding: 14px 16px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-right: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.progress-table th:last-child {
+  border-right: none;
+}
+
+.progress-table tbody tr {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  transition: all 0.2s ease;
+}
+
+.progress-table tbody tr:hover {
+  background-color: rgba(0, 144, 255, 0.05);
+}
+
+.progress-table td {
+  padding: 14px 16px;
+  font-size: 13px;
+  border-right: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.progress-table td:last-child {
+  border-right: none;
+}
+
+/* Row Expansion */
+.expand-button {
+  background: none;
+  border: none;
+  color: #00d4ff;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.expand-button:hover {
+  transform: scale(1.2);
+}
+
+.expand-button.expanded {
+  transform: rotate(180deg);
+}
+
+/* Patient Info Cell */
+.patient-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.patient-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0090ff 0%, #00d4ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: white;
+}
+
+.patient-details h4 {
+  margin: 0;
+  font-size: 13px;
+  color: #e8edf5;
+}
+
+.patient-details p {
+  margin: 2px 0 0 0;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* Score Styling */
+.score-cell {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.score-excellent {
+  color: #86efac;
+  background-color: rgba(34, 197, 94, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.score-good {
+  color: #00d4ff;
+  background-color: rgba(0, 144, 255, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.score-fair {
+  color: #fbbf24;
+  background-color: rgba(245, 158, 11, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.score-poor {
+  color: #fca5a5;
+  background-color: rgba(239, 68, 68, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* Date Cell */
+.date-cell {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+/* Exercise Type Badge */
+.exercise-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background-color: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+/* Attempt Count Badge */
+.attempt-badge {
+  display: inline-block;
+  min-width: 40px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: rgba(0, 144, 255, 0.2);
+  color: #00d4ff;
+  border: 1px solid rgba(0, 144, 255, 0.3);
+}
+
+/* Expanded Details Section */
+.expanded-details {
+  background-color: rgba(30, 41, 59, 0.6);
+  border-top: 2px solid rgba(0, 144, 255, 0.2);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  padding: 20px 16px;
+}
+
+.expanded-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 144, 255, 0.2);
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 6px 0;
+  font-size: 12px;
+}
+
+.detail-label {
+  color: #94a3b8;
+}
+
+.detail-value {
+  color: #e8edf5;
+  font-weight: 600;
+}
+
+/* Per-Attempt Breakdown */
+.per-attempt-breakdown {
+  margin-top: 12px;
+}
+
+.per-attempt-breakdown-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin-bottom: 10px;
+}
+
+.attempt-item {
+  background-color: rgba(17, 24, 39, 0.6);
+  border-left: 3px solid #0090ff;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.attempt-item-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.attempt-num {
+  color: #00d4ff;
+}
+
+.attempt-score {
+  color: #86efac;
+}
+
+.attempt-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.metric-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-label {
+  color: #64748b;
+}
+
+.metric-value {
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+/* Weighted Components Display */
+.weighted-components-detail {
+  margin-top: 12px;
+}
+
+.weighted-components-detail-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.components-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.component-item {
+  background-color: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(0, 144, 255, 0.2);
+  padding: 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.component-item-name {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.component-item-score {
+  font-size: 14px;
+  font-weight: 700;
+  color: #00d4ff;
+}
+
+/* Progression Analysis */
+.progression-analysis {
+  background-color: rgba(0, 184, 148, 0.05);
+  border-left: 3px solid #00b894;
+  padding: 12px;
+  border-radius: 4px;
+  margin-top: 12px;
+}
+
+.progression-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #00b894;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.progression-items {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  font-size: 11px;
+}
+
+.progression-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.progression-item-label {
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.progression-item-value {
+  color: #86efac;
+  font-weight: 600;
+}
+
+.progression-positive {
+  color: #86efac;
+}
+
+.progression-negative {
+  color: #fca5a5;
+}
+
+.progression-neutral {
+  color: #cbd5e1;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #94a3b8;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.empty-state-text {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.empty-state-subtext {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.pagination-button {
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background-color: rgba(30, 41, 59, 0.8);
+  color: #cbd5e1;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.pagination-button:hover:not(:disabled) {
+  border-color: rgba(0, 212, 255, 0.5);
+  color: #00d4ff;
+}
+
+.pagination-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* Export Button */
+.export-button {
+  padding: 8px 12px;
+  background-color: #0090ff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+}
+
+.export-button:hover {
+  background-color: #0078d4;
+  box-shadow: 0 4px 12px rgba(0, 144, 255, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .progress-table-container {
+    padding: 16px;
+  }
+
+  .expanded-details-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .progression-items {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .progress-table-container {
+    padding: 12px;
+    margin: 12px;
+  }
+
+  .progress-table-title {
+    font-size: 18px;
+  }
+
+  .table-stats {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  .table-controls {
+    flex-direction: column;
+  }
+
+  .filter-input,
+  .filter-select {
+    width: 100%;
+  }
+
+  .progress-table {
+    font-size: 12px;
+  }
+
+  .progress-table th,
+  .progress-table td {
+    padding: 10px 8px;
+  }
+
+  .expanded-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .components-list {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .progress-table-container {
+    padding: 8px;
+    margin: 8px;
+  }
+
+  .progress-table-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .table-stats {
+    width: 100%;
+    margin-top: 12px;
+  }
+
+  .progress-table {
+    font-size: 11px;
+  }
+
+  .progress-table th,
+  .progress-table td {
+    padding: 8px 6px;
+  }
+
+  .patient-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .patient-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .expanded-details {
+    padding: 12px 8px;
+  }
+
+  .components-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .attempt-metrics {
+    grid-template-columns: 1fr;
+  }
+}

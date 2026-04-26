@@ -37,6 +37,9 @@ build/
 .cache/
 .cache-loader/
 parcel-cache/
+__pycache__/
+*.py[cod]
+*$py.class
 
 # IDEs and editors
 .vscode/
@@ -75,4 +78,4 @@ firebase-key.json
 /output_excel
 /Final Environment
 /UnityPipeline
-/Capstone 2 Environment
+# /Capstone 2 Environment

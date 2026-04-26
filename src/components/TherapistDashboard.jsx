@@ -101,16 +101,46 @@ export default function TherapistDashboard({ user, onLogout }) {
         )}
 
         {view === "records" && (
-          <ProgressTable
-            patient={selectedPatient}
-            sessions={sessions}
-            analyses={analyses}
-            loading={loading}
-            patients={patients}
-            onSelectPatient={loadRecords}
-            onAnalysisDeleted={handleAnalysisDeleted}
-            onSessionDeleted={handleSessionDeleted}
-          />
+          <div className="records-view">
+            {/* Patient selector when landing on Records tab directly */}
+            {!selectedPatient ? (
+              <div className="home-view">
+                <h2>Select a patient to view records</h2>
+                <div className="patient-grid">
+                  {patients.map((p) => (
+                    <div key={p.id} className="patient-card" onClick={() => loadRecords(p)} style={{ cursor: 'pointer' }}>
+                      <div className="patient-avatar">{p.name?.charAt(0).toUpperCase()}</div>
+                      <h3>{p.name}</h3>
+                      <p>{p.email}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <button className="btn-secondary" onClick={() => { setSelectedPatient(null); setAnalyses([]); setSessions([]); }}>
+                    ← Back to patients
+                  </button>
+                  <h2 style={{ margin: 0 }}>Records: {selectedPatient.name}</h2>
+                  <select
+                    value={selectedPatient.id}
+                    onChange={(e) => loadRecords(patients.find(p => p.id === e.target.value))}
+                    style={{ marginLeft: 'auto' }}
+                  >
+                    {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <ProgressTable
+                  analysisResults={analyses}
+                  sessions={sessions}
+                  loading={loading}
+                  onAnalysisDeleted={handleAnalysisDeleted}
+                  onSessionDeleted={handleSessionDeleted}
+                />
+              </>
+            )}
+          </div>
         )}
       </main>
     </div>

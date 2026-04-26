@@ -116,20 +116,29 @@ class MotionCaptureApp:
             )
             return
 
-        self.use_tasks_api = True
-        BaseOptions          = mp.tasks.BaseOptions
-        PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
-        VisionRunningMode    = mp.tasks.vision.RunningMode
+        # Try Tasks API first, fallback to Solutions API if error occurs
+        try:
+            self.use_tasks_api = True
+            BaseOptions          = mp.tasks.BaseOptions
+            PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
+            VisionRunningMode    = mp.tasks.vision.RunningMode
 
-        options = PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=self.model_path),
-            running_mode=VisionRunningMode.VIDEO,
-            min_pose_detection_confidence=0.7,
-            min_pose_presence_confidence=0.7,
-            min_tracking_confidence=0.7,
-        )
-        self.landmarker = mp.tasks.vision.PoseLandmarker.create_from_options(options)
-        print("MediaPipe Pose Landmarker Initialized (Tasks API, VIDEO mode)")
+            options = PoseLandmarkerOptions(
+                base_options=BaseOptions(model_asset_path=self.model_path),
+                running_mode=VisionRunningMode.VIDEO,
+                min_pose_detection_confidence=0.7,
+                min_pose_presence_confidence=0.7,
+                min_tracking_confidence=0.7,
+            )
+            self.landmarker = mp.tasks.vision.PoseLandmarker.create_from_options(options)
+            print("MediaPipe Pose Landmarker Initialized (Tasks API, VIDEO mode)")
+        except (AttributeError, Exception) as e:
+            print(f"Tasks API initialization failed ({type(e).__name__}: {str(e)[:100]})")
+            print("   Falling back to MediaPipe Solutions API (less accurate).")
+            self.use_tasks_api = False
+            self._mp_pose = mp.solutions.pose.Pose(
+                model_complexity=1, smooth_landmarks=True
+            )
 
     # ── Camera setup ──────────────────────────────────────────────────────────
 

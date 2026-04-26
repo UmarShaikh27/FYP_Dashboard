@@ -115,10 +115,16 @@ def scale(template_path: str,
     patient_df  = pd.read_excel(patient_normalized_path)
 
     # ── Validate template ──────────────────────────────────────────────
-    for col in ['wrist_normalized_x', 'wrist_normalized_y', 'wrist_normalized_z']:
-        if col not in template_df.columns:
-            raise ValueError(f"Template file missing column: {col}. "
-                             f"Template must be a normalized file with wrist_normalized_x/y/z columns.")
+    required_cols = ['wrist_normalized_x', 'wrist_normalized_y', 'wrist_normalized_z']
+    if not all(col in template_df.columns for col in required_cols):
+        # Template files may be saved without headers. Try reloading with header=None
+        template_df = pd.read_excel(template_path, header=None)
+        if len(template_df.columns) >= 3:
+            template_df = template_df.iloc[:, :3]
+            template_df.columns = required_cols
+            print("[INFO] Template missing headers. Automatically assigned wrist_normalized_x/y/z.")
+        else:
+            raise ValueError("Template file missing wrist_normalized_x/y/z columns and does not contain 3 unnamed columns.")
 
     # ── Validate patient ───────────────────────────────────────────────
     for col in ['Shoulder_x', 'Shoulder_y', 'Shoulder_z']:

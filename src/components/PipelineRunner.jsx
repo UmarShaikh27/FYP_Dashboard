@@ -9,7 +9,7 @@ import {
   startRecording,
   getRecordingStatus,
   stopRecording,
-  runAnalysis,
+  runPipelineAnalysis,
 } from "../api/localServer";
 import { saveAnalysisResult } from "../firebase/db";
 
@@ -20,52 +20,33 @@ const STEP = {
   RECORDING:    2,
   ANALYZING:    3,
   RESULTS:      4,
-};
-
-// ── Score ring color ──────────────────────────────────────────────────────────
-function scoreColor(score) {
-  if (score >= 80) return "#00e5c3";
-  if (score >= 50) return "#0090ff";
-  return "#ff4b6e";
-}
-
-// ── Circular score ring ───────────────────────────────────────────────────────
-function ScoreRing({ score }) {
+};// ── Circular score ring ───────────────────────────────────────────────────────
+function ScoreRing({ score, max = 10 }) {
   const r = 54, circ = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
+  const offset = circ - (Math.max(0, Math.min(score, max)) / max) * circ;
+  
+  const scoreColor = (s) => s >= 7 ? '#00e5c3' : s >= 4 ? '#f39c12' : '#ff4b6e';
   const color = scoreColor(score);
+  
   return (
-    <div className="score-ring-wrap">
-      <svg width="140" height="140" viewBox="0 0 140 140">
-        <circle cx="70" cy="70" r={r} fill="none" stroke="#232a3a" strokeWidth="10" />
-        <circle
-          cx="70" cy="70" r={r} fill="none"
-          stroke={color} strokeWidth="10"
-          strokeDasharray={circ} strokeDashoffset={offset}
-          strokeLinecap="round"
-          transform="rotate(-90 70 70)"
-          style={{ transition: "stroke-dashoffset 1s ease" }}
-        />
-      </svg>
-      <div className="score-ring-text">
-        <span className="score-number" style={{ color }}>{score}</span>
-        <span className="score-label">/100</span>
+    <div className="score-ring-wrap" style={{ display: 'flex', justifyContent: 'center', margin: '20px 0' }}>
+      <div style={{ position: 'relative', width: '140px', height: '140px' }}>
+        <svg width="140" height="140" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r={r} fill="none" stroke="#232a3a" strokeWidth="10" />
+          <circle
+            cx="70" cy="70" r={r} fill="none"
+            stroke={color} strokeWidth="10"
+            strokeDasharray={circ} strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform="rotate(-90 70 70)"
+            style={{ transition: "stroke-dashoffset 1s ease" }}
+          />
+        </svg>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ color, fontSize: '32px', fontWeight: 'bold' }}>{Number(score).toFixed(1)}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>/{max}</span>
+        </div>
       </div>
-    </div>
-  );
-}
-
-// ── Grade pill ────────────────────────────────────────────────────────────────
-function GradePill({ label, value, max = 10 }) {
-  const pct = (value / max) * 100;
-  const color = pct >= 80 ? "#00e5c3" : pct >= 50 ? "#0090ff" : "#ff4b6e";
-  return (
-    <div className="grade-pill">
-      <span className="grade-pill-label">{label}</span>
-      <div className="grade-pill-bar-bg">
-        <div className="grade-pill-bar" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <span className="grade-pill-val" style={{ color }}>{value}/{max}</span>
     </div>
   );
 }
@@ -73,42 +54,43 @@ function GradePill({ label, value, max = 10 }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PipelineRunner({ patient, patients, therapistId, onSaved }) {
   const [step, setStep]               = useState(STEP.SERVER_CHECK);
-  const [serverOk, setServerOk]       = useState(null);       // null|true|false
+  const [serverOk, setServerOk]       = useState(null);
   const [templates, setTemplates]     = useState([]);
   const [patientFiles, setPatientFiles] = useState([]);
-  
+
   // Config
   const [selectedPatient, setSelectedPatient] = useState(patient || null);
   const [template, setTemplate]       = useState("");
-  const [exerciseName, setExerciseName] = useState("Wrist Rotation");
+  const [exerciseName, setExerciseName] = useState("");
   const [duration, setDuration]       = useState(8);
   const [sensitivity, setSensitivity] = useState(3.0);
   const [shapeTol, setShapeTol]       = useState(0.20);
 
   // Recording
-  const [recordStatus, setRecordStatus] = useState(null); // { state, message, output_file }
-  const [recordingFile, setRecordingFile] = useState(null); // filename saved by shoulder_origin.py
-  const [showLogs, setShowLogs]       = useState(false); // For recording logs
-  const [fullLogs, setFullLogs]       = useState(""); // Full logs from server
+  const [recordStatus, setRecordStatus] = useState(null);
+  const [recordingFile, setRecordingFile] = useState(null);
+  const [showLogs, setShowLogs]       = useState(false);
+  const [fullLogs, setFullLogs]       = useState("");
   const pollRef = useRef(null);
 
   // Analysis
   const [analyzing, setAnalyzing]     = useState(false);
   const [analysisError, setAnalysisError] = useState("");
-  const [analysisDebugInfo, setAnalysisDebugInfo] = useState(""); // For debugging
   const [result, setResult]           = useState(null);
 
   // Saving
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
 
+  // Analyze existing file
+  const [manualFile, setManualFile]   = useState("");
+
   // ── Server health check on mount ─────────────────────────────────────────
   useEffect(() => {
     checkServerHealth()
       .then(() => {
         setServerOk(true);
-        // Pre-load templates and patient files
-        listTemplates().then((d) => { setTemplates(d.templates); if (d.templates[0]) setTemplate(d.templates[0]); });
+        listTemplates().then((d) => { setTemplates(d.templates); });
         listPatientFiles().then((d) => setPatientFiles(d.files));
         setStep(STEP.CONFIGURE);
       })
@@ -125,16 +107,12 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         if (status.state === "done" || status.state === "error") {
           clearInterval(pollRef.current);
           if (status.state === "done") {
-            // Store the recording filename so it gets saved with the result
             setRecordingFile(status.output_file);
-            // Refresh file list and jump to analysis
             const d = await listPatientFiles();
             setPatientFiles(d.files);
             setStep(STEP.ANALYZING);
-            setAnalysisDebugInfo("Starting DTW analysis...");
-            // Await the DTW analysis to ensure it completes before rendering
-            // (error handling is done inside runDTW)
-            await runDTW(status.output_file);
+            try { await runDTW(status.output_file); }
+            catch (err) { console.error("Analysis failed:", err); }
           }
         }
       } catch (_) {}
@@ -142,119 +120,105 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
     return () => clearInterval(pollRef.current);
   }, [step]);
 
+  // ── Exercise → template auto-map ─────────────────────────────────────────
+  const setExercise = (ex) => {
+    setExerciseName(ex);
+    if (ex === "Eight Tracing")    setTemplate("8_tracing_right_wrist_template.xlsx");
+    else if (ex === "circumduction") setTemplate("Circumduction_right_wrist_template.xlsx");
+    else if (ex === "flexion")     setTemplate("Flexion_2kg_right_wrist_template.xlsx");
+    else setTemplate("");
+  };
+
   // ── Start recording ───────────────────────────────────────────────────────
   const handleStartRecording = async (isUnity = false) => {
     if (!selectedPatient) return alert("Please select a patient first.");
     if (!template)         return alert("Please select an exercise template.");
     setStep(STEP.RECORDING);
     setRecordStatus({ state: "recording", message: `Recording for ${duration}s…`, output_file: null });
-    
     if (isUnity) {
       try {
-        const res = await fetch("http://localhost:5050/mocap/unity_start", {
+        const res = await fetch("http://localhost:5000/mocap/unity_start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            duration: duration,
-            grace: 6,
-            exercise: exerciseName,
-            arm: "right",
-            trail: "unity_session"
-          }),
+          body: JSON.stringify({ duration, grace: 6, exercise: exerciseName, arm: "right", trail: "unity_session" }),
         });
         const data = await res.json();
         if (!res.ok || data.error) alert(data.error || "Error starting Unity via backend");
-      } catch (err) {
-        alert("Failed to connect to backend server");
-      }
+      } catch (err) { alert("Failed to connect to backend server"); }
     } else {
       await startRecording(duration);
     }
   };
 
-  // ── Run DTW analysis ──────────────────────────────────────────────────────
+  // ── Run analysis ──────────────────────────────────────────────────────────
   const runDTW = async (patientFile) => {
     setAnalyzing(true);
     setAnalysisError("");
-    setAnalysisDebugInfo("Calling DTW analysis endpoint...");
-    
     try {
-      // Add a timeout so we don't hang forever
-      const analysisPromise = runAnalysis(patientFile, template, sensitivity, shapeTol);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Analysis took too long (>30s) — server may be unresponsive")), 30000)
+      const analysisPromise = runPipelineAnalysis(patientFile, template, exerciseName, null, null);
+      const timeoutPromise  = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Analysis took too long (>120s)")), 120000)
       );
-      
       const res = await Promise.race([analysisPromise, timeoutPromise]);
-      
-      // Verify response has all required fields
-      if (!res || typeof res !== 'object') {
-        throw new Error("Invalid response from server: not an object");
-      }
-      
-      if (res.error) {
-        throw new Error(res.error);
-      }
-      
-      console.log("DTW analysis successful:", res);
-      setAnalysisDebugInfo("Analysis complete, displaying results...");
+      if (!res || typeof res !== "object") throw new Error("Invalid response from server");
+      if (res.error) throw new Error(res.error);
+      console.log("Pipeline result:", res);
       setResult(res);
       setStep(STEP.RESULTS);
     } catch (e) {
-      console.error("DTW analysis error:", e);
-      const errorMsg = e.message || "Unknown error during analysis";
-      setAnalysisError(errorMsg);
-      setAnalysisDebugInfo("Error: " + errorMsg);
-      setStep(STEP.CONFIGURE); // fall back so they can retry
-      throw e; // Re-throw so the calling code knows it failed
+      console.error("Analysis error:", e);
+      setAnalysisError(e.message || "Unknown error during analysis");
+      setStep(STEP.CONFIGURE);
+      throw e;
     } finally {
       setAnalyzing(false);
     }
   };
 
-  // ── Manually trigger analysis on an existing file ─────────────────────────
-  const [manualFile, setManualFile] = useState("");
   const handleManualAnalyze = async () => {
     if (!manualFile) return alert("Select a recorded file.");
-    if (!template)  return alert("Select a template.");
+    if (!template)   return alert("Select a template.");
     setRecordingFile(manualFile);
     setStep(STEP.ANALYZING);
-    setAnalysisDebugInfo("Starting DTW analysis on selected file...");
-    try {
-      await runDTW(manualFile);
-    } catch (err) {
-      console.error("Error in manual analysis:", err);
-      // Error handling is already done in runDTW, which sets the error state
-    }
+    try { await runDTW(manualFile); }
+    catch (err) { console.error("Error in manual analysis:", err); }
   };
 
   // ── Save to Firestore ─────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!result || !selectedPatient) return;
     setSaving(true);
+    const d = (v, fb = null) => v !== undefined ? v : fb;
     try {
       await saveAnalysisResult({
-        patientId:      selectedPatient.id,
-        patientName:    selectedPatient.name,
+        patientId:    selectedPatient.id,
+        patientName:  selectedPatient.name,
         therapistId,
         exerciseName,
-        templateFile:   result.template_file,
-        patientFile:    result.patient_file,
-        recordingFile:  recordingFile || result.patient_file,
-        score:          result.score,
-        global_rmse:    result.global_rmse,
-        axis_rmse:      result.axis_rmse,
-        rom_ratio:      result.rom_ratio,
-        rom_ratios:     result.rom_ratios,
-        rom_axis_grades: result.rom_axis_grades,
-        avg_rom_grade:  result.avg_rom_grade,
-        shape_grade:    result.shape_grade,
-        sparc:            result.sparc,
-        sparc_grades:     result.sparc_grades,
-        patient_feedback: result.patient_feedback,
-        report_text:      result.report_text,
-        plot_image_b64: result.plot_image_b64,
-        excel_file_b64: result.excel_file_b64,  // Base64-encoded Excel file
+        exercise_type:    d(result.exercise_type, exerciseName),
+        templateFile:     d(result.template_file, ""),
+        patientFile:      d(result.patient_file, ""),
+        recordingFile:    recordingFile || d(result.patient_file, ""),
+
+        // All scores out of 10
+        global_score:          d(result.global_score, 0),
+        dtw_score:             d(result.dtw_score, 0),
+        som_grade:             d(result.som_grade, 0),
+        rom_grade:             d(result.rom_grade, 0),
+        tempo_control_grade:   d(result.tempo_control_grade, 0),
+        hesitation_grade:      d(result.hesitation_grade, 0),
+        tremor_grade:          d(result.tremor_grade, 0),
+
+        // Attempt breakdown
+        num_attempts:          d(result.num_attempts, 1),
+        per_attempt_scores:    d(result.per_attempt_scores, []),
+        per_attempt_metrics:   d(result.per_attempt_metrics, []),
+        attempt_progression:   d(result.attempt_progression, {}),
+        weights_config:        d(result.weights_config, {}),
+
+        // Plots
+        session_attempts_plot_b64: d(result.session_attempts_plot_b64, ""),
+        global_report_plot_b64:    d(result.global_report_plot_b64, ""),
       });
       setSaved(true);
       setTimeout(() => onSaved?.(), 1500);
@@ -276,7 +240,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         <h1>Run Analysis Pipeline</h1>
         <div className="server-check-card">
           <div className="spinner" style={{ margin: "0 auto 16px" }} />
-          <p>Connecting to local Python server on <code>localhost:5050</code>…</p>
+          <p>Connecting to local Python server on <code>localhost:5000</code>…</p>
           {serverOk === false && (
             <div className="pipeline-error" style={{ marginTop: 16 }}>
               <strong>Cannot reach local server.</strong>
@@ -331,19 +295,19 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             </div>
 
             <div className="field-group">
-              <label>Exercise Name</label>
-              <input value={exerciseName} onChange={(e) => setExerciseName(e.target.value)} />
+              <label>Exercise Type</label>
+              <select value={exerciseName} onChange={(e) => setExercise(e.target.value)}>
+                <option value="">— Select Exercise —</option>
+                <option value="Eight Tracing">Eight Tracing</option>
+                <option value="circumduction">Circumduction</option>
+                <option value="flexion">Flexion</option>
+              </select>
             </div>
 
             <div className="field-group">
-              <label>Template File</label>
-              <select value={template} onChange={(e) => setTemplate(e.target.value)}>
-                <option value="">— Select Template —</option>
-                {templates.map((t) => <option key={t}>{t}</option>)}
-              </select>
-              {templates.length === 0 && (
-                <p className="field-hint">Put .xlsx templates in the <code>templates/</code> folder, then refresh.</p>
-              )}
+              <label>Template File (Auto-Selected)</label>
+              <input value={template} readOnly disabled style={{ background: '#1a2030', color: '#6b7a96', cursor: 'not-allowed', opacity: 0.8 }} />
+              {!template && <p className="field-hint">Select an exercise above to auto-detect template.</p>}
             </div>
 
             <div className="field-row">
@@ -355,11 +319,6 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
                 <label>Sensitivity</label>
                 <input type="number" step={0.5} min={0.5} max={10} value={sensitivity} onChange={(e) => setSensitivity(+e.target.value)} />
               </div>
-            </div>
-
-            <div className="field-group">
-              <label>Shape Tolerance (m) — e.g. 0.20 = 20cm</label>
-              <input type="number" step={0.05} min={0.05} max={1} value={shapeTol} onChange={(e) => setShapeTol(+e.target.value)} />
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
@@ -396,16 +355,19 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             </div>
 
             <div className="field-group">
-              <label>Template File</label>
-              <select value={template} onChange={(e) => setTemplate(e.target.value)}>
-                <option value="">— Select Template —</option>
-                {templates.map((t) => <option key={t}>{t}</option>)}
+              <label>Exercise Type</label>
+              <select value={exerciseName} onChange={(e) => setExercise(e.target.value)}>
+                <option value="">— Select Exercise —</option>
+                <option value="Eight Tracing">Eight Tracing</option>
+                <option value="circumduction">Circumduction</option>
+                <option value="flexion">Flexion</option>
               </select>
             </div>
 
             <div className="field-group">
-              <label>Exercise Name</label>
-              <input value={exerciseName} onChange={(e) => setExerciseName(e.target.value)} />
+              <label>Template File (Auto-Selected)</label>
+              <input value={template} readOnly disabled style={{ background: '#1a2030', color: '#6b7a96', cursor: 'not-allowed', opacity: 0.8 }} />
+              {!template && <p className="field-hint">Select an exercise above to specify the processing file.</p>}
             </div>
 
             <button className="btn-primary" style={{ marginTop: "auto", width: "100%" }} onClick={handleManualAnalyze}>
@@ -425,7 +387,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
 
     const fetchLogs = async () => {
       try {
-        const data = await fetch("http://localhost:5050/mocap/logs").then(r => r.json());
+        const data = await fetch("http://localhost:5000/mocap/logs").then(r => r.json());
         setFullLogs(data.full_stderr || data.stdout || "No logs available.");
         setShowLogs(true);
       } catch { setFullLogs("Could not fetch logs from server."); setShowLogs(true); }
@@ -439,7 +401,6 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             {isDone ? "✓" : isError ? "✗" : isGrace ? "⏱" : "●"}
           </div>
           <p className="rec-message">{recordStatus?.message || "Initializing camera…"}</p>
-
           {isError && (
             <div className="error-box" style={{ marginTop: 16 }}>
               <pre className="report-pre small" style={{ textAlign: "left", color: "#ff4b6e", maxHeight: 300, overflowY: "auto" }}>
@@ -456,7 +417,6 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
               )}
             </div>
           )}
-
           {!isDone && !isError && (
             <button className="btn-secondary" style={{ marginTop: 16 }} onClick={async () => {
               await stopRecording();
@@ -474,141 +434,148 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   if (step === STEP.ANALYZING) {
     return (
       <div className="pipeline-view">
-        <h1>Running DTW Analysis…</h1>
+        <h1>Running Multi-Attempt Analysis…</h1>
         <div className="recording-card">
           <div className="spinner" style={{ margin: "0 auto 20px" }} />
-          <p>Comparing patient motion to expert template using multivariate DTW.</p>
-          <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>This may take 5–15 seconds.</p>
-          
-          {analysisDebugInfo && (
-            <p className="muted" style={{ marginTop: 12, fontSize: 11, fontFamily: "monospace", color: "#0090ff" }}>
-              {analysisDebugInfo}
-            </p>
-          )}
-          
-          {analysisError && (
-            <div className="error-box" style={{ marginTop: 16 }}>
-              <p style={{ color: "#ff4b6e", fontWeight: "bold" }}>⚠ Analysis Error:</p>
-              <pre className="report-pre small" style={{ textAlign: "left", color: "#ff4b6e", maxHeight: 200, overflowY: "auto" }}>
-                {analysisError}
-              </pre>
-              <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>Try again or use the "Analyze Existing File" option.</p>
-              <button className="btn-primary" style={{ marginTop: 12 }} onClick={() => setStep(STEP.CONFIGURE)}>
-                ← Back to Configure
-              </button>
-            </div>
-          )}
+          <p>Processing motion data and calculating scores for all attempts.</p>
+          <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>This typically takes 10–30 seconds depending on motion length.</p>
         </div>
       </div>
     );
   }
 
   // Step 4: Results
-  if (step === STEP.RESULTS && result) {
+  if (step === STEP.RESULTS) {
+    if (!result) {
+      return (
+        <div className="pipeline-view">
+          <h1>Error: No Results</h1>
+          <div className="recording-card">
+            <p>The analysis completed but no results were received from the server.</p>
+            <button className="btn-primary" style={{ marginTop: 16 }} onClick={() => { setResult(null); setStep(STEP.CONFIGURE); }}>
+              ← Back to Configure
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     const r = result;
+    const sc = (s) => { const n = Number(s); return n >= 7 ? '#00e5c3' : n >= 4 ? '#f39c12' : '#ff4b6e'; };
+    const sl = (s) => { const n = Number(s); return n >= 7 ? 'Good' : n >= 4 ? 'Moderate' : 'Poor'; };
+
+    const SESSION_SCORES = [
+      { key: 'dtw_score',           label: 'DTW' },
+      { key: 'som_grade',           label: 'SoM (Shape)' },
+      { key: 'rom_grade',           label: 'ROM' },
+      { key: 'tempo_control_grade', label: 'Tempo Control' },
+      { key: 'hesitation_grade',    label: 'Hesitation' },
+      { key: 'tremor_grade',        label: 'Tremor' },
+    ];
+
     return (
       <div className="pipeline-view">
         <div className="results-topbar">
           <div>
             <h1>Analysis Complete</h1>
-            <p className="subtitle">{exerciseName} — {selectedPatient?.name}</p>
+            <p className="subtitle">{exerciseName} — {selectedPatient?.name} &nbsp;·&nbsp; {r.num_attempts || 1} attempt{r.num_attempts !== 1 ? 's' : ''}</p>
           </div>
           <div className="results-actions">
             <button className="btn-secondary" onClick={() => { setResult(null); setStep(STEP.CONFIGURE); }}>
               ← New Analysis
             </button>
-            {r.excel_file_b64 && (
-              <button 
-                className="btn-secondary"
-                onClick={() => {
-                  // Convert base64 to blob and trigger download
-                  const binaryString = atob(r.excel_file_b64);
-                  const bytes = new Uint8Array(binaryString.length);
-                  for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                  }
-                  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = r.patient_file;  // Use the original timestamped filename
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  document.body.removeChild(a);
-                }}
-              >
-                📥 Download Excel
-              </button>
-            )}
             <button className="btn-primary" onClick={handleSave} disabled={saving || saved}>
-              {saved ? "✓ Saved to Records" : saving ? "Saving…" : "💾 Save to Patient Records"}
+              {saved ? '✓ Saved to Records' : saving ? 'Saving…' : '💾 Save to Patient Records'}
             </button>
           </div>
         </div>
 
-        <div className="results-grid">
-          {/* Score */}
-          <div className="result-card center">
-            <h3>Overall Score</h3>
-            <ScoreRing score={r.score} />
+        <div className="results-container">
+          
+          {/* ── Global Total Score Ring ── */}
+          <div className="result-card" style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px', textAlign: 'center' }}>
+            <h2 style={{ marginBottom: '10px' }}>Global Total Score</h2>
+            <ScoreRing score={r.global_score ?? 0} max={10} />
+            <p className="muted" style={{ marginTop: '10px' }}>Average overall performance across all attempts</p>
           </div>
 
-          {/* Grades */}
-          <div className="result-card">
-            <h3>Clinical Grades</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-              <GradePill label="ROM Grade"   value={Math.round(r.avg_rom_grade)} />
-              <GradePill label="Shape Grade" value={r.shape_grade} />
-              <GradePill label="ROM X-axis"  value={r.rom_axis_grades[0]} />
-              <GradePill label="ROM Y-axis"  value={r.rom_axis_grades[1]} />
-              <GradePill label="ROM Z-axis"  value={r.rom_axis_grades[2]} />
-              {r.sparc_grades && <>
-                <div className="grade-section-divider">Smoothness (SPARC)</div>
-                <GradePill label="Overall"    value={r.sparc_grades.total} />
-                <GradePill label="Choppiness" value={r.sparc_grades.choppiness} />
-                <GradePill label="Tremor"     value={r.sparc_grades.tremor} />
-              </>}
+          {/* ── Session-Level Score Blocks ── */}
+          <div style={{ marginBottom: '24px' }}>
+            <h2 style={{ marginBottom: '14px' }}>Session Scores — averaged across all attempts (out of 10)</h2>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {SESSION_SCORES.map(({ key, label }) => {
+                const val = r[key] ?? 0;
+                return (
+                  <div key={key} className="result-card" style={{ flex: '1 1 110px', textAlign: 'center', padding: '18px 10px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: '30px', fontWeight: '800', color: sc(val), lineHeight: 1 }}>
+                      {Number(val).toFixed(1)}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>/10</div>
+                    <div style={{ fontSize: '11px', marginTop: '6px', color: sc(val) }}>{sl(val)}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* RMSE */}
-          <div className="result-card">
-            <h3>Error Metrics</h3>
-            <table className="mini-table">
-              <tbody>
-                <tr><td>Global RMSE</td><td className="val">{r.global_rmse} m</td></tr>
-                <tr><td>RMSE X</td><td className="val">{r.axis_rmse.x} m</td></tr>
-                <tr><td>RMSE Y</td><td className="val">{r.axis_rmse.y} m</td></tr>
-                <tr><td>RMSE Z</td><td className="val">{r.axis_rmse.z} m</td></tr>
-                <tr><td>ROM Ratio</td><td className="val">{(r.rom_ratio * 100).toFixed(1)}%</td></tr>
-                {r.sparc && <>
-                  <tr><td colSpan={2} style={{paddingTop:10,color:"var(--text-muted)",fontSize:12}}>SPARC Metrics</td></tr>
-                  <tr><td>Overall SPARC</td><td className="val">{r.sparc.total}</td></tr>
-                  <tr><td>Vel. RMSE</td><td className="val">{r.sparc.velocity_rmse} m/s</td></tr>
-                  <tr><td>Peak Velocity</td><td className="val">{r.sparc.peak_velocity} m/s</td></tr>
-                </>}
-              </tbody>
-            </table>
-          </div>
+          {/* ── Per-Attempt Global Scores ── */}
+          {r.per_attempt_scores?.length > 0 && (
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ marginBottom: '12px' }}>Per-Attempt Global Scores</h3>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {r.per_attempt_scores.map((s, idx) => (
+                  <div key={idx} className="result-card" style={{ flex: '1 1 80px', textAlign: 'center', padding: '14px 8px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>Attempt {idx + 1}</div>
+                    <div style={{ fontSize: '26px', fontWeight: '700', color: sc(s) }}>{Number(s).toFixed(1)}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>/10</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-          {/* Therapist report */}
-          <div className="result-card span-2">
-            <h3>Therapist Report</h3>
-            <pre className="report-pre">{r.report_text}</pre>
-          </div>
+          {/* ── Progression Summary ── */}
+          {r.attempt_progression && (
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}>
+              {[
+                ['Attempts',  r.num_attempts],
+                ['Avg Score', Number(r.attempt_progression.avg_score).toFixed(2)],
+                ['Best',      Number(r.attempt_progression.best_attempt).toFixed(2)],
+                ['Trend',     r.attempt_progression.trend],
+              ].map(([lbl, val]) => (
+                <div key={lbl} className="result-card" style={{ flex: '1 1 100px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lbl}</div>
+                  <div style={{ fontSize: '22px', fontWeight: '700', marginTop: '6px' }}>{val}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
+          {/* ── Session Attempts Plot ── */}
+          {r.session_attempts_plot_b64
+            ? (
+              <div className="result-card" style={{ marginBottom: '20px' }}>
+                <h3 style={{ marginBottom: '12px' }}>Session Attempts — 3D Trajectory Overview</h3>
+                <img src={`data:image/png;base64,${r.session_attempts_plot_b64}`} alt="Session attempts plot" className="result-plot" style={{ width: '100%' }} />
+              </div>
+            )
+            : <p className="muted" style={{ marginBottom: '12px' }}>Session attempts plot not available.</p>
+          }
 
+          {/* ── Global Report Plot ── */}
+          {r.global_report_plot_b64
+            ? (
+              <div className="result-card" style={{ marginBottom: '20px' }}>
+                <h3 style={{ marginBottom: '12px' }}>Global Report — Score Breakdown</h3>
+                <img src={`data:image/png;base64,${r.global_report_plot_b64}`} alt="Global report" className="result-plot" style={{ width: '100%' }} />
+              </div>
+            )
+            : <p className="muted" style={{ marginBottom: '12px' }}>Global report plot not available.</p>
+          }
 
-          {/* Plot image */}
-          <div className="result-card span-3">
-            <h3>3D Trajectory Comparison</h3>
-            <img
-              src={`data:image/png;base64,${r.plot_image_b64}`}
-              alt="DTW comparison plot"
-              className="result-plot"
-            />
-          </div>
         </div>
       </div>
     );
