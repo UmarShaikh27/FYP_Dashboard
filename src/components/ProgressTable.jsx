@@ -8,7 +8,7 @@
  * - Progress Report with exercise filtering and trend charts
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import {
   LineChart,
@@ -67,18 +67,73 @@ const defaultExercises = (analyses) => {
   return Array.from(new Set(names)).sort();
 };
 
-const renderClickableDot = ({ cx, cy, payload, stroke }) => (
-  <circle
-    cx={cx}
-    cy={cy}
-    r={5}
-    fill={stroke}
-    stroke="#111"
-    strokeWidth={1}
-    style={{ cursor: 'pointer' }}
-    onClick={() => payload.__onClick && payload.__onClick(payload.id)}
-  />
-);
+const buildRowId = (rec) => {
+  if (!rec) return 'record-unknown';
+  if (rec.id) return String(rec.id);
+  if (rec.sessionId) return String(rec.sessionId);
+
+  const exercise = String(rec.exerciseName || rec.exercise_type || 'record')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-');
+  const timestamp = getDateValue(rec) || 'na';
+  const attempts = rec.num_attempts || rec.per_attempt_scores?.length || 1;
+  const globalScore = Number(rec.global_score ?? rec.score ?? 0).toFixed(2);
+  return `${exercise}-${timestamp}-${attempts}-${globalScore}`;
+};
+
+const resolveSessionIdFromDot = (payload = {}, fallback = null) => {
+  if (payload.id) return String(payload.id);
+  if (payload.sessionId) return String(payload.sessionId);
+  if (payload.original) return buildRowId(payload.original);
+  if (payload.createdAt || payload.exerciseName || payload.exercise_type) return buildRowId(payload);
+  return fallback;
+};
+
+const renderClickableDot = (props, onDotClick) => {
+  const payload = props.payload || {};
+  const sessionId = resolveSessionIdFromDot(payload, props.id || null);
+  const handleActivate = (event) => {
+    event.stopPropagation();
+    if (sessionId) onDotClick(sessionId);
+  };
+
+  return (
+    <g
+      key={`dot-${sessionId ?? props.cx}-${props.cy}`}
+      style={{ cursor: 'pointer', pointerEvents: 'all' }}
+      onClick={handleActivate}
+      onTouchEnd={handleActivate}
+      role="button"
+      tabIndex={0}
+      aria-label={sessionId ? `Open analysis for session ${sessionId}` : 'Open analysis session'}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          handleActivate(event);
+        }
+      }}
+    >
+      <circle
+        cx={props.cx}
+        cy={props.cy}
+        r={14}
+        fill="transparent"
+        stroke="transparent"
+        style={{ pointerEvents: 'all' }}
+      />
+      <circle
+        cx={props.cx}
+        cy={props.cy}
+        r={6}
+        fill={props.stroke}
+        stroke="#111"
+        strokeWidth={1}
+        style={{ pointerEvents: 'none' }}
+      />
+    </g>
+  );
+};
 
 export default function ProgressTable({
   patient = null,
@@ -93,6 +148,7 @@ export default function ProgressTable({
   const [activeTab, setActiveTab] = useState(TAB_KEYS.ANALYSIS);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [detailsRows, setDetailsRows] = useState(new Set());
+  const [highlightedSessionId, setHighlightedSessionId] = useState(null);
   const [selectedExercises, setSelectedExercises] = useState([]);
 
   const analysisResults = analyses.length ? analyses : legacyAnalysisResults;
@@ -116,7 +172,8 @@ export default function ProgressTable({
 
   const chartData = useMemo(
     () => sortedAnalyses.map((rec, index) => ({
-      id: rec.id,
+      // Use the same rowId logic for navigation
+      id: buildRowId(rec),
       name: `S${index + 1}`,
       sessionLabel: rec.exerciseName || rec.exercise_type || `Session ${index + 1}`,
       createdAt: formatDate(rec.createdAt),
@@ -132,6 +189,14 @@ export default function ProgressTable({
   );
 
   const tableAnalyses = useMemo(() => [...sortedAnalyses].reverse(), [sortedAnalyses]);
+
+  const normalizeImageSource = (raw) => {
+    if (!raw) return null;
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('data:image/')) return trimmed;
+    return `data:image/png;base64,${trimmed}`;
+  };
 
   const handleToggleRow = (id) => {
     const next = new Set(expandedRows);
@@ -153,15 +218,46 @@ export default function ProgressTable({
     });
   };
 
-  const handleSessionClick = (id) => {
+  const handleSessionClick = useCallback((id) => {
+    if (!id) return;
     setActiveTab(TAB_KEYS.ANALYSIS);
     setExpandedRows(new Set([id]));
-    setDetailsRows((prev) => new Set(prev).add(id));
-    window.requestAnimationFrame(() => {
-      const el = document.getElementById(`record-${id}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-  };
+    setDetailsRows(new Set([id]));
+    setHighlightedSessionId(id);
+  }, []);
+
+  const renderChartDot = useCallback(
+    (props) => renderClickableDot(props, handleSessionClick),
+    [handleSessionClick]
+  );
+
+  useEffect(() => {
+    if (activeTab !== TAB_KEYS.ANALYSIS || !highlightedSessionId) return;
+    let attempts = 0;
+    let frameId = null;
+
+    const scrollToTarget = () => {
+      const element = document.getElementById(`record-${highlightedSessionId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedSessionId(null);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts < 12) {
+        frameId = window.requestAnimationFrame(scrollToTarget);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(scrollToTarget);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [activeTab, highlightedSessionId]);
 
   const sessionSummary = useMemo(() => {
     if (filteredAnalyses.length < 1) return null;
@@ -249,14 +345,49 @@ export default function ProgressTable({
                 </thead>
                 <tbody>
                   {tableAnalyses.map((rec) => {
-                    const expanded = expandedRows.has(rec.id);
-                    const detailsOpen = detailsRows.has(rec.id);
+                    // Robust rowId for navigation and matching
+                    const rowId = buildRowId(rec);
+                    const expanded = expandedRows.has(rowId);
+                    const detailsOpen = detailsRows.has(rowId);
                     const globalScore = Number(rec.global_score ?? rec.score ?? 0);
+                    // Robust figure field fallback (flat and nested)
+                    const plotImageRaw =
+                      rec.plot_image_b64 ||
+                      rec.plotImageB64 ||
+                      rec.plot_image ||
+                      rec.plotImage ||
+                      rec.session_attempts_plot_b64 ||
+                      rec.sessionAttemptsPlotB64 ||
+                      (rec.figures && (
+                        rec.figures.plot_image_b64 ||
+                        rec.figures.plotImageB64 ||
+                        rec.figures.plot_image ||
+                        rec.figures.plotImage ||
+                        rec.figures.session_attempts_plot_b64 ||
+                        rec.figures.sessionAttemptsPlotB64
+                      ));
+                    const sessionPlotImageRaw =
+                      rec.session_plot_image_b64 ||
+                      rec.sessionPlotImageB64 ||
+                      rec.session_plot_image ||
+                      rec.sessionPlotImage ||
+                      rec.global_report_plot_b64 ||
+                      rec.globalReportPlotB64 ||
+                      (rec.figures && (
+                        rec.figures.session_plot_image_b64 ||
+                        rec.figures.sessionPlotImageB64 ||
+                        rec.figures.session_plot_image ||
+                        rec.figures.sessionPlotImage ||
+                        rec.figures.global_report_plot_b64 ||
+                        rec.figures.globalReportPlotB64
+                      ));
+                    const plotImage = normalizeImageSource(plotImageRaw);
+                    const sessionPlotImage = normalizeImageSource(sessionPlotImageRaw);
                     return (
-                      <React.Fragment key={rec.id}>
-                        <tr id={`record-${rec.id}`} className="data-row">
+                      <React.Fragment key={rowId}>
+                        <tr id={`record-${rowId}`} className="data-row">
                           <td className="expand-col">
-                            <button className="expand-btn" onClick={() => handleToggleRow(rec.id)} aria-expanded={expanded}>
+                            <button className="expand-btn" onClick={() => handleToggleRow(rowId)} aria-expanded={expanded}>
                               {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                             </button>
                           </td>
@@ -271,12 +402,12 @@ export default function ProgressTable({
                           <tr className="detail-row">
                             <td colSpan="6">
                               <div className="detail-panel">
+
                                 <div className="detail-top">
                                   <div className="score-ring-panel">
                                     <div className="score-ring-label">Global Score</div>
                                     <div className="global-score-value" style={{ color: scoreColor(globalScore) }}>{globalScore.toFixed(1)}</div>
                                   </div>
-
                                   <div className="kpi-cards">
                                     {KPI_KEYS.map((kpi) => {
                                       const value = Number(rec[kpi.key] ?? 0);
@@ -291,7 +422,7 @@ export default function ProgressTable({
                                 </div>
 
                                 <div className="detail-actions">
-                                  <button className="btn-secondary" onClick={() => handleToggleDetails(rec.id)}>
+                                  <button className="btn-secondary" onClick={() => handleToggleDetails(rowId)}>
                                     {detailsOpen ? 'Hide Per-Attempt Details' : 'Per-Attempt Details'}
                                   </button>
                                 </div>
@@ -314,29 +445,30 @@ export default function ProgressTable({
                                       </div>
                                     )}
 
-                                    <div className="figures-grid">
-                                      {rec.session_plot_image_b64 && (
-                                        <div className="figure-card">
-                                          <div className="figure-title">Global Report</div>
-                                          <img
-                                            src={`data:image/png;base64,${rec.session_plot_image_b64}`}
-                                            alt="Global report"
-                                            className="figure-image"
-                                          />
-                                        </div>
-                                      )}
-
-                                      {rec.plot_image_b64 && (
-                                        <div className="figure-card">
-                                          <div className="figure-title">3D Trajectory Comparison</div>
-                                          <img
-                                            src={`data:image/png;base64,${rec.plot_image_b64}`}
-                                            alt="Trajectory comparison"
-                                            className="figure-image"
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
+                                    {(sessionPlotImage || plotImage) && (
+                                      <div className="figures-grid">
+                                        {sessionPlotImage && (
+                                          <div className="figure-card">
+                                            <div className="figure-title">Global Report</div>
+                                            <img
+                                              src={sessionPlotImage}
+                                              alt="Global report"
+                                              className="figure-image"
+                                            />
+                                          </div>
+                                        )}
+                                        {plotImage && (
+                                          <div className="figure-card">
+                                            <div className="figure-title">3D Trajectory Comparison</div>
+                                            <img
+                                              src={plotImage}
+                                              alt="Trajectory comparison"
+                                              className="figure-image"
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -426,7 +558,8 @@ export default function ProgressTable({
                       dataKey="global_score"
                       stroke="#00d4ff"
                       strokeWidth={3}
-                      dot={(props) => renderClickableDot({ ...props, __onClick: handleSessionClick })}
+                      isAnimationActive={false}
+                      dot={renderChartDot}
                       activeDot={{ r: 7 }}
                       name="Global Score"
                     />
@@ -450,7 +583,8 @@ export default function ProgressTable({
                         dataKey={kpi.key}
                         stroke={kpi.color}
                         strokeWidth={2}
-                        dot={(props) => renderClickableDot({ ...props, __onClick: handleSessionClick })}
+                        isAnimationActive={false}
+                        dot={renderChartDot}
                         activeDot={{ r: 7 }}
                         name={kpi.label}
                       />
