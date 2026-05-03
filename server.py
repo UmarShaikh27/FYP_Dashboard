@@ -644,23 +644,129 @@ def mocap_start():
 @app.route("/mocap/unity_start", methods=["POST"])
 def mocap_unity_start():
     """
-    Start gamified recording session via Unity.
-    Currently forwards to standard mocap start.
-    
+    Launch the gamified (Unity) session.
+
+    - Opens the Unity game executable.
+    - Runs headless motion capture (no CV2 window) via unity_bridge.py.
+    - Waits for Unity to send START_EXERCISE before recording begins.
+    - Sends countdown timer ticks to Unity every 0.5 s during recording.
+    - On completion, runs the full scoring pipeline and sends results to Unity.
+
     Body: {
-      "duration": 8,
-      "grace": 6,
-      "exercise": "Wrist Rotation",
-      "arm": "right",
-      "trail": "unity_session"
+      "duration": 20,
+      "exercise": "eight_tracing",
+      "arm": "right"
     }
     """
-    # For now, this just calls the standard mocap start
-    # In the future, this could send commands to a Unity process
-    data = request.get_json(force=True)
-    
-    # Forward to the standard mocap start
-    return mocap_start()
+    global _mocap_status, unity_bridge_instance, unity_process
+
+    if _mocap_status.get("state") in ("recording", "analyzing"):
+        # Let's forcefully reset it to allow a new session
+        print("[Server] Forcefully overriding previous stuck mocap session.")
+        if globals().get('unity_bridge_instance') is not None:
+            print("[Server] Closing old bridge instance...")
+            unity_bridge_instance.close()
+            unity_bridge_instance = None
+        if globals().get('unity_process') is not None:
+            print("[Server] Terminating old Unity process...")
+            try:
+                unity_process.terminate()
+            except Exception:
+                pass
+            unity_process = None
+        _mocap_status = {"state": "idle", "message": "Ready", "output_file": None}
+
+    data     = request.get_json(force=True)
+    duration = float(data.get("duration", 20))
+    exercise = normalize_exercise_type(data.get("exercise", "eight_tracing"))
+    arm      = data.get("arm", MOCAP_ARM)
+
+    _mocap_status = {
+        "state":       "recording",
+        "message":     "Unity session starting\u2026 waiting for game to boot.",
+        "output_file": None,
+    }
+
+    def run():
+        global _mocap_status
+        bridge = None
+        try:
+            # 1. Launch Unity executable (non-blocking)
+            unity_exe = os.path.join(ROOT_DIR, "UnityPipeline", "Builds", "Body control 3D model.exe")
+            if os.path.exists(unity_exe):
+                global unity_process
+                unity_process = subprocess.Popen([unity_exe])
+                print(f"[Unity] Launched: {unity_exe}")
+                import time as _time
+                _time.sleep(3)   # give Unity time to boot and bind its socket
+            else:
+                print(f"[Unity] WARNING: exe not found at {unity_exe}")
+
+            # 2. Headless motion capture (blocks until done)
+            from unity_bridge import UnityBridgeCapture
+            global unity_bridge_instance
+            unity_bridge_instance = UnityBridgeCapture(
+                arm=arm,
+                duration=duration,
+                exercise_type=exercise,
+                output_dir=OUTPUT_FOLDER,
+                camera_source="realsense",
+            )
+            raw_path = unity_bridge_instance.run()   # blocks until duration elapsed
+
+            _mocap_status = {
+                "state":       "analyzing",
+                "message":     "Recording complete. Running analysis pipeline\u2026",
+                "output_file": os.path.basename(raw_path),
+            }
+
+            # 3. Full scoring pipeline (same as normal pipeline)
+            template_file = _template_for_exercise(exercise)
+            weights       = get_exercise_weights(exercise)
+            result        = run_multi_attempt_analysis(
+                patient_file=os.path.basename(raw_path),
+                template_file=template_file,
+                exercise_type=exercise,
+                weights=weights,
+            )
+
+            # 4. Notify Unity session is done (it will show "Session Complete!" and auto-close)
+            unity_bridge_instance.send_done()
+            unity_bridge_instance.close()
+            unity_bridge_instance = None
+
+            _mocap_status = {
+                "state":       "done",
+                "message":     "Gamified session complete.",
+                "output_file": os.path.basename(raw_path),
+                "result":      result,
+            }
+
+        except Exception as e:
+            import traceback
+            _mocap_status = {
+                "state":      "error",
+                "message":    str(e),
+                "full_stderr": traceback.format_exc(),
+                "output_file": None,
+            }
+        finally:
+            if bridge:
+                bridge.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+def _template_for_exercise(exercise_type: str) -> str:
+    """Map a normalised exercise key to its template filename."""
+    mapping = {
+        "eight_tracing": "8_tracing_right_wrist_template.xlsx",
+        "circumduction":  "Circumduction_right_wrist_template.xlsx",
+        "flexion":        "Flexion_2kg_right_wrist_template.xlsx",
+        "flexion_2kg":    "Flexion_2kg_right_wrist_template.xlsx",
+    }
+    return mapping.get(exercise_type, "8_tracing_right_wrist_template.xlsx")
 
 
 @app.route("/mocap/status", methods=["GET"])
@@ -680,11 +786,10 @@ def mocap_logs():
 
 @app.route("/mocap/stop", methods=["POST"])
 def mocap_stop():
-    global _mocap_process
-    if _mocap_process and _mocap_process.poll() is None:
-        _mocap_process.terminate()
-        return jsonify({"status": "stopped"})
-    return jsonify({"status": "not_running"})
+    """Reset mocap status (gamified sessions end automatically)."""
+    global _mocap_status
+    _mocap_status = {"state": "idle", "message": "", "output_file": None}
+    return jsonify({"status": "reset"})
 
 
 @app.route("/files/patient", methods=["GET"])
@@ -718,7 +823,7 @@ def analyze_legacy():
     if not os.path.exists(pat_path):
         return jsonify({"error": f"Patient file not found: {patient_file}"}), 404
     if not os.path.exists(ref_path):
-        ref_path = os.path.join(CAPSTONE_TEMPLATES, template_file)
+        ref_path = os.path.join(TEMPLATES_FOLDER, template_file)
         if not os.path.exists(ref_path):
             return jsonify({"error": f"Template file not found: {template_file}"}), 404
 

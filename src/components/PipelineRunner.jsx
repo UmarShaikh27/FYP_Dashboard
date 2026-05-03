@@ -82,6 +82,9 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
 
+  // Gamified session flag
+  const [isGamified, setIsGamified]   = useState(false);
+
   // Analyze existing file
   const [manualFile, setManualFile]   = useState("");
 
@@ -111,14 +114,21 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             const d = await listPatientFiles();
             setPatientFiles(d.files);
             setStep(STEP.ANALYZING);
-            try { await runDTW(status.output_file); }
-            catch (err) { console.error("Analysis failed:", err); }
+            if (isGamified && status.result) {
+              // Gamified path: server already ran the full pipeline — use its result
+              setResult(status.result);
+              setStep(STEP.RESULTS);
+            } else {
+              // Normal path: trigger client-side analysis
+              try { await runDTW(status.output_file); }
+              catch (err) { console.error("Analysis failed:", err); }
+            }
           }
         }
       } catch (_) {}
     }, 1000);
     return () => clearInterval(pollRef.current);
-  }, [step]);
+  }, [step, isGamified]);
 
   // ── Exercise → template auto-map ─────────────────────────────────────────
   const setExercise = (ex) => {
@@ -130,20 +140,27 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   };
 
   // ── Start recording ───────────────────────────────────────────────────────
-  const handleStartRecording = async (isUnity = false) => {
+  const handleStartRecording = async (gamified = false) => {
     if (!selectedPatient) return alert("Please select a patient first.");
     if (!template)         return alert("Please select an exercise template.");
+    setIsGamified(gamified);
     setStep(STEP.RECORDING);
-    setRecordStatus({ state: "recording", message: `Recording for ${duration}s…`, output_file: null });
-    if (isUnity) {
+    setRecordStatus({
+      state: "recording",
+      message: gamified
+        ? `Unity launching… press Start in the game when ready. Recording for ${duration}s.`
+        : `Recording for ${duration}s — press SPACE in camera window to begin.`,
+      output_file: null,
+    });
+    if (gamified) {
       try {
         const res = await fetch("http://localhost:5000/mocap/unity_start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ duration, grace: 6, exercise: exerciseName, arm: "right", trail: "unity_session" }),
+          body: JSON.stringify({ duration, exercise: exerciseName, arm: "right" }),
         });
         const data = await res.json();
-        if (!res.ok || data.error) alert(data.error || "Error starting Unity via backend");
+        if (!res.ok || data.error) alert(data.error || "Error starting Unity session");
       } catch (err) { alert("Failed to connect to backend server"); }
     } else {
       await startRecording(duration);
@@ -383,7 +400,6 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   if (step === STEP.RECORDING) {
     const isDone  = recordStatus?.state === "done";
     const isError = recordStatus?.state === "error";
-    const isGrace = recordStatus?.state === "grace";
 
     const fetchLogs = async () => {
       try {
@@ -393,14 +409,25 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
       } catch { setFullLogs("Could not fetch logs from server."); setShowLogs(true); }
     };
 
+    const titleText = isError ? "Recording Failed"
+      : isDone    ? "Recording Complete"
+      : isGamified ? "Unity Session Active"
+      : "Recording Motion…";
+
     return (
       <div className="pipeline-view">
-        <h1>{isError ? "Recording Failed" : isGrace ? "Get Ready…" : isDone ? "Recording Complete" : "Recording Motion…"}</h1>
+        <h1>{titleText}</h1>
         <div className="recording-card">
           <div className={`rec-indicator ${isDone ? "done" : isError ? "error" : "active"}`}>
-            {isDone ? "✓" : isError ? "✗" : isGrace ? "⏱" : "●"}
+            {isDone ? "✓" : isError ? "✗" : isGamified ? "🎮" : "●"}
           </div>
-          <p className="rec-message">{recordStatus?.message || "Initializing camera…"}</p>
+          <p className="rec-message">{recordStatus?.message || "Initializing camera…"}
+          {isGamified && !isDone && !isError && (
+            <span style={{ display: 'block', marginTop: 8, color: 'var(--text-muted)', fontSize: '0.85em' }}>
+              The camera is capturing your motion. Press <strong>Start Exercise</strong> in the Unity game window to begin recording.
+            </span>
+          )}
+          </p>
           {isError && (
             <div className="error-box" style={{ marginTop: 16 }}>
               <pre className="report-pre small" style={{ textAlign: "left", color: "#ff4b6e", maxHeight: 300, overflowY: "auto" }}>

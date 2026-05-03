@@ -77,6 +77,14 @@ def segment_attempts(
     # 1. Load the normalized Excel
     df = pd.read_excel(normalized_excel_path)
     
+    # Calculate REAL framerate based on timestamps
+    if "timestamp" in df.columns and len(df) > 1:
+        total_time = df["timestamp"].iloc[-1] - df["timestamp"].iloc[0]
+        fps = len(df) / total_time if total_time > 0 else 30.0
+    else:
+        fps = 30.0
+    print(f"[Segmentation] Detected real framerate: {fps:.1f} FPS")
+    
     # 2. Compute per-frame 3D velocity
     x = df["wrist_normalized_x"].values
     y = df["wrist_normalized_y"].values
@@ -90,10 +98,11 @@ def segment_attempts(
     velocity[0] = 0.0
     
     # 2.5 Smooth velocity to remove jitter and make pauses obvious
-    smoothed_velocity = pd.Series(velocity).rolling(window=15, center=True, min_periods=1).mean().values
+    smooth_window = max(1, int(fps / 2))  # ~0.5 seconds smoothing
+    smoothed_velocity = pd.Series(velocity).rolling(window=smooth_window, center=True, min_periods=1).mean().values
     
     # 3. Apply a rolling minimum
-    window = int(min_gap_seconds * fps)
+    window = max(1, int(min_gap_seconds * fps))
     # Using a centered window as it aligns well with gap detection
     rolling_min = pd.Series(smoothed_velocity).rolling(window=window, center=True, min_periods=1).min().values
     
@@ -125,11 +134,12 @@ def segment_attempts(
     leading_rest_end = 0
     trailing_rest_start = len(df)
     
+    edge_buffer = max(1, int(fps / 2))
     segments = []
     for s, e, d in all_segments:
-        if s <= 15:  # This rest touches the very beginning (leading buffer)
+        if s <= edge_buffer:  # This rest touches the very beginning (leading buffer)
             leading_rest_end = e
-        elif e >= len(df) - 15:  # This rest touches the very end (trailing buffer)
+        elif e >= len(df) - edge_buffer:  # This rest touches the very end (trailing buffer)
             trailing_rest_start = s
         else:
             segments.append((s, e, d))
