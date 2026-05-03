@@ -122,7 +122,9 @@ export default function TherapistDashboard({ user, onLogout }) {
                   <button className="btn-secondary" onClick={() => { setSelectedPatient(null); setAnalyses([]); setSessions([]); }}>
                     ← Back to patients
                   </button>
-                  <h2 style={{ margin: 0 }}>Records: {selectedPatient.name}</h2>
+                  <div style={{ color: '#cbd5e1' }}>
+                    Viewing records for <strong>{selectedPatient.name}</strong>
+                  </div>
                   <select
                     value={selectedPatient.id}
                     onChange={(e) => loadRecords(patients.find(p => p.id === e.target.value))}
@@ -134,6 +136,7 @@ export default function TherapistDashboard({ user, onLogout }) {
                 <ProgressTable
                   analysisResults={analyses}
                   sessions={sessions}
+                  patient={selectedPatient}
                   loading={loading}
                   onAnalysisDeleted={handleAnalysisDeleted}
                   onSessionDeleted={handleSessionDeleted}
