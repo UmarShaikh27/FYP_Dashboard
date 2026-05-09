@@ -5,6 +5,7 @@ import { getAllPatients, getPatientSessions, getPatientAnalyses } from "../fireb
 import ExerciseSession from "./ExerciseSession";
 import ProgressTable from "./ProgressTable";
 import PipelineRunner from "./PipelineRunner";
+import ScoringMethodology from "./ScoringMethodology";
 
 export default function TherapistDashboard({ user, onLogout }) {
   const [patients, setPatients]               = useState([]);
@@ -16,6 +17,13 @@ export default function TherapistDashboard({ user, onLogout }) {
 
   useEffect(() => {
     getAllPatients().then(setPatients);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tdView") === "scoring") {
+      setView("scoring");
+    }
   }, []);
 
   const loadRecords = async (patient) => {
@@ -45,6 +53,12 @@ export default function TherapistDashboard({ user, onLogout }) {
     onLogout();
   };
 
+  const openScoringMethodologyInNewTab = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tdView", "scoring");
+    window.open(url.toString(), "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div className="dashboard">
       <aside className="sidebar">
@@ -56,6 +70,7 @@ export default function TherapistDashboard({ user, onLogout }) {
           <button className={view === "home"     ? "active" : ""} onClick={() => setView("home")}>🏠 Home</button>
           <button className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")}>🔬 Therapy Session</button>
           <button className={view === "records"  ? "active" : ""} onClick={() => setView("records")}>📊 Records</button>
+          <button className={view === "scoring"  ? "active" : ""} onClick={() => setView("scoring")}>🧠 Scoring Methodology</button>
         </nav>
         <div className="sidebar-footer">
           <p className="sidebar-user">Dr. {user.name}</p>
@@ -140,11 +155,14 @@ export default function TherapistDashboard({ user, onLogout }) {
                   loading={loading}
                   onAnalysisDeleted={handleAnalysisDeleted}
                   onSessionDeleted={handleSessionDeleted}
+                  onOpenScoreMethodology={openScoringMethodologyInNewTab}
                 />
               </>
             )}
           </div>
         )}
+
+        {view === "scoring" && <ScoringMethodology />}
       </main>
     </div>
   );

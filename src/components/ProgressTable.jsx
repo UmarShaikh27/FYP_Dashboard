@@ -8,7 +8,7 @@
  * - Progress Report with exercise filtering and trend charts
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import {
   LineChart,
@@ -29,6 +29,33 @@ const KPI_KEYS = [
   { key: 'hesitation_grade', label: 'Hesitation', color: '#fb7185' },
   { key: 'tremor_grade', label: 'Tremor', color: '#f97316' },
 ];
+
+const KPI_DEFINITIONS = {
+  global_score: {
+    title: 'Global Score',
+    short: 'Overall quality score for the session on a 0-10 scale.',
+  },
+  som_grade: {
+    title: 'SoM (Smoothness of Movement)',
+    short: 'How smooth and controlled the trajectory is over time.',
+  },
+  rom_grade: {
+    title: 'ROM (Range of Motion)',
+    short: 'How closely movement amplitude matches the target/template range.',
+  },
+  tempo_control_grade: {
+    title: 'Tempo Control',
+    short: 'How consistent and appropriate the movement timing is.',
+  },
+  hesitation_grade: {
+    title: 'Hesitation',
+    short: 'Penalizes pauses or stop-and-go behavior during movement.',
+  },
+  tremor_grade: {
+    title: 'Tremor',
+    short: 'Penalizes high-frequency jitter or oscillatory noise.',
+  },
+};
 
 const TAB_KEYS = {
   ANALYSIS: 'analysis',
@@ -144,12 +171,22 @@ export default function ProgressTable({
   onSelectPatient,
   onAnalysisDeleted,
   onSessionDeleted,
+  onOpenScoreMethodology,
 }) {
   const [activeTab, setActiveTab] = useState(TAB_KEYS.ANALYSIS);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [detailsRows, setDetailsRows] = useState(new Set());
   const [highlightedSessionId, setHighlightedSessionId] = useState(null);
   const [selectedExercises, setSelectedExercises] = useState([]);
+  const [hoverCard, setHoverCard] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    title: '',
+    short: '',
+  });
+  const [isHoveringInfoCard, setIsHoveringInfoCard] = useState(false);
+  const hoverCloseTimeoutRef = useRef(null);
 
   const analysisResults = analyses.length ? analyses : legacyAnalysisResults;
   const exerciseOptions = useMemo(() => defaultExercises(analysisResults), [analysisResults]);
@@ -217,6 +254,65 @@ export default function ProgressTable({
       return Array.from(next);
     });
   };
+
+  const openKpiDetailsInNewTab = useCallback(() => {
+    if (onOpenScoreMethodology) {
+      onOpenScoreMethodology();
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('tdView', 'scoring');
+    window.open(url.toString(), '_blank', 'noopener,noreferrer');
+  }, [onOpenScoreMethodology]);
+
+  const showDefinitionHover = useCallback((metricKey, event) => {
+    const definition = KPI_DEFINITIONS[metricKey];
+    if (!definition) return;
+
+    if (hoverCloseTimeoutRef.current) {
+      window.clearTimeout(hoverCloseTimeoutRef.current);
+      hoverCloseTimeoutRef.current = null;
+    }
+    setIsHoveringInfoCard(false);
+    setHoverCard({
+      visible: true,
+      x: event.clientX + 14,
+      y: event.clientY + 14,
+      title: definition.title,
+      short: definition.short,
+    });
+  }, []);
+
+  const moveDefinitionHover = useCallback((event) => {
+    setHoverCard((prev) => {
+      if (!prev.visible || isHoveringInfoCard) return prev;
+      return {
+        ...prev,
+        x: event.clientX + 14,
+        y: event.clientY + 14,
+      };
+    });
+  }, [isHoveringInfoCard]);
+
+  const hideDefinitionHover = useCallback(() => {
+    if (isHoveringInfoCard) return;
+    if (hoverCloseTimeoutRef.current) {
+      window.clearTimeout(hoverCloseTimeoutRef.current);
+    }
+    // Small delay allows pointer travel from source card to hover card.
+    hoverCloseTimeoutRef.current = window.setTimeout(() => {
+      setHoverCard((prev) => ({ ...prev, visible: false }));
+      hoverCloseTimeoutRef.current = null;
+    }, 180);
+  }, [isHoveringInfoCard]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverCloseTimeoutRef.current) {
+        window.clearTimeout(hoverCloseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSessionClick = useCallback((id) => {
     if (!id) return;
@@ -404,7 +500,12 @@ export default function ProgressTable({
                               <div className="detail-panel">
 
                                 <div className="detail-top">
-                                  <div className="score-ring-panel">
+                                  <div
+                                    className="score-ring-panel score-explainable"
+                                    onMouseEnter={(event) => showDefinitionHover('global_score', event)}
+                                    onMouseMove={moveDefinitionHover}
+                                    onMouseLeave={hideDefinitionHover}
+                                  >
                                     <div className="score-ring-label">Global Score</div>
                                     <div className="global-score-value" style={{ color: scoreColor(globalScore) }}>{globalScore.toFixed(1)}</div>
                                   </div>
@@ -412,7 +513,13 @@ export default function ProgressTable({
                                     {KPI_KEYS.map((kpi) => {
                                       const value = Number(rec[kpi.key] ?? 0);
                                       return (
-                                        <div key={kpi.key} className="kpi-card">
+                                        <div
+                                          key={kpi.key}
+                                          className="kpi-card score-explainable"
+                                          onMouseEnter={(event) => showDefinitionHover(kpi.key, event)}
+                                          onMouseMove={moveDefinitionHover}
+                                          onMouseLeave={hideDefinitionHover}
+                                        >
                                           <div className="kpi-label">{kpi.label}</div>
                                           <div className="kpi-score" style={{ color: scoreColor(value) }}>{value.toFixed(1)}</div>
                                         </div>
@@ -594,6 +701,32 @@ export default function ProgressTable({
               </div>
             </>
           )}
+        </div>
+      )}
+      {hoverCard.visible && (
+        <div
+          className="score-hover-card"
+          style={{
+            left: `${hoverCard.x}px`,
+            top: `${hoverCard.y}px`,
+          }}
+          onMouseEnter={() => {
+            if (hoverCloseTimeoutRef.current) {
+              window.clearTimeout(hoverCloseTimeoutRef.current);
+              hoverCloseTimeoutRef.current = null;
+            }
+            setIsHoveringInfoCard(true);
+          }}
+          onMouseLeave={() => {
+            setIsHoveringInfoCard(false);
+            setHoverCard((prev) => ({ ...prev, visible: false }));
+          }}
+        >
+          <div className="score-hover-title">{hoverCard.title}</div>
+          <div className="score-hover-copy">{hoverCard.short}</div>
+          <button className="score-hover-link" type="button" onClick={openKpiDetailsInNewTab}>
+            View full details
+          </button>
         </div>
       )}
     </div>
