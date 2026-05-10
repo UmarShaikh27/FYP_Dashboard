@@ -159,6 +159,7 @@ class MotionCaptureApp:
             return True
         except Exception as e:
             print(f"❌ RealSense Error: {e} - Falling back to webcam...")
+            self.pipeline = None  # reset — start() never succeeded
             self.camera_source = "webcam"
             return self._setup_webcam()
     def _setup_webcam(self) -> bool:

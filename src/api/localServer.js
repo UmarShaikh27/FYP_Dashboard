@@ -1,9 +1,9 @@
 // src/api/localServer.js
 // Calls the Flask backend running on the therapist's local machine.
-// Uses HTTPS so that the cloud-hosted Vercel frontend (HTTPS) can reach
-// localhost without mixed-content blocking.
+// Auto-detects protocol: HTTPS when served from Vercel, HTTP for local dev.
 
-const BASE = import.meta.env.VITE_LOCAL_BACKEND_URL || "https://localhost:5000";
+const _proto = window.location.protocol === "https:" ? "https" : "http";
+const BASE = import.meta.env.VITE_LOCAL_BACKEND_URL || `${_proto}://localhost:5000`;
 
 // ── Connection state (reactive via listeners) ────────────────────────────
 let _backendConnected = false;
