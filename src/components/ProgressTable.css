@@ -734,13 +734,15 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
 .kpi-card {
   background: rgba(15, 20, 25, 0.95);
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 14px;
-  padding: 16px;
+  padding: 0;
+  align-self: start;
 }
 
 .score-explainable {
@@ -758,6 +760,127 @@
 .kpi-score {
   font-size: 22px;
   font-weight: 700;
+}
+
+.kpi-card--expandable.score-explainable {
+  cursor: default;
+  padding: 0;
+  overflow: hidden;
+}
+
+.kpi-card--active {
+  border-color: rgba(0, 212, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.25);
+}
+
+.kpi-card-main {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.kpi-card-main:focus-visible {
+  outline: 2px solid rgba(0, 212, 255, 0.5);
+  outline-offset: 2px;
+}
+
+.kpi-card-main--static {
+  cursor: help;
+  padding: 16px;
+}
+
+.kpi-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.kpi-label-row .kpi-label {
+  margin-bottom: 0;
+}
+
+.kpi-chevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.kpi-chevron--open {
+  transform: rotate(180deg);
+}
+
+.kpi-breakdown {
+  padding: 0 16px 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  margin-top: 0;
+}
+
+.kpi-breakdown-title {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 10px 0 8px;
+}
+
+.kpi-breakdown-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.kpi-breakdown-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.kpi-breakdown-list li:last-child {
+  border-bottom: none;
+}
+
+.kpi-breakdown-interactive,
+.kpi-breakdown-interactive-inline {
+  cursor: help;
+}
+
+.kpi-breakdown-list--stacked li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.kpi-breakdown-list--stacked li span:last-child {
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-breakdown-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.kpi-breakdown-panel {
+  margin-top: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 20, 25, 0.9);
 }
 
 .detail-actions {

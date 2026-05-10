@@ -30,6 +30,109 @@ const KPI_KEYS = [
   { key: 'tremor_grade', label: 'Tremor', color: '#f97316' },
 ];
 
+/** SoM / ROM / Tempo cards show an expandable clinical breakdown */
+const KPI_EXPANDABLE = new Set(['som_grade', 'rom_grade', 'tempo_control_grade']);
+
+const axisKeys = ['X', 'Y', 'Z'];
+
+const pickAxisTriplet = (block) => {
+  if (!block || typeof block !== 'object') return null;
+  const out = {};
+  let any = false;
+  for (const k of axisKeys) {
+    const v = block[k] ?? block[k.toLowerCase()];
+    if (v != null && v !== '') {
+      out[k] = Number(v);
+      any = true;
+    } else {
+      out[k] = null;
+    }
+  }
+  return any ? out : null;
+};
+
+const averageTripletFromAttempts = (rec, field) => {
+  const attempts = rec.per_attempt_metrics;
+  if (!Array.isArray(attempts) || !attempts.length) return null;
+  const sums = { X: 0, Y: 0, Z: 0 };
+  const counts = { X: 0, Y: 0, Z: 0 };
+  for (const a of attempts) {
+    const block = a[field];
+    if (!block || typeof block !== 'object') continue;
+    for (const k of axisKeys) {
+      const v = block[k];
+      if (v != null && !Number.isNaN(Number(v))) {
+        sums[k] += Number(v);
+        counts[k] += 1;
+      }
+    }
+  }
+  const out = {};
+  let any = false;
+  for (const k of axisKeys) {
+    out[k] = counts[k] ? Math.round((sums[k] / counts[k]) * 10000) / 10000 : null;
+    if (out[k] != null) any = true;
+  }
+  return any ? out : null;
+};
+
+const getAxisRmseForRecord = (rec) =>
+  pickAxisTriplet(rec.axis_rmse) || averageTripletFromAttempts(rec, 'axis_rmse');
+
+const getRomAxisGradesForRecord = (rec) => {
+  const raw = pickAxisTriplet(rec.rom_axis_grades) || averageTripletFromAttempts(rec, 'rom_axis_grades');
+  if (!raw) return null;
+  const out = {};
+  for (const k of axisKeys) {
+    out[k] = raw[k] != null ? Math.round(Number(raw[k]) * 10) / 10 : null;
+  }
+  return out;
+};
+
+const getTempoMetricsForRecord = (rec) => {
+  const direct = {
+    pat_velocity_rmse: rec.pat_velocity_rmse,
+    ref_peak_velocity: rec.ref_peak_velocity,
+    pat_peak_velocity: rec.pat_peak_velocity,
+    ref_mean_velocity: rec.ref_mean_velocity,
+    pat_mean_velocity: rec.pat_mean_velocity,
+  };
+  const hasDirect = Object.values(direct).some((v) => v != null && v !== '');
+  if (hasDirect) {
+    return {
+      pat_velocity_rmse: direct.pat_velocity_rmse != null ? Number(direct.pat_velocity_rmse) : null,
+      ref_peak_velocity: direct.ref_peak_velocity != null ? Number(direct.ref_peak_velocity) : null,
+      pat_peak_velocity: direct.pat_peak_velocity != null ? Number(direct.pat_peak_velocity) : null,
+      ref_mean_velocity: direct.ref_mean_velocity != null ? Number(direct.ref_mean_velocity) : null,
+      pat_mean_velocity: direct.pat_mean_velocity != null ? Number(direct.pat_mean_velocity) : null,
+    };
+  }
+  const attempts = rec.per_attempt_metrics;
+  if (!Array.isArray(attempts) || !attempts.length) return null;
+  const fields = ['pat_velocity_rmse', 'ref_peak_velocity', 'pat_peak_velocity', 'ref_mean_velocity', 'pat_mean_velocity'];
+  const acc = {};
+  for (const f of fields) acc[f] = [];
+  for (const a of attempts) {
+    for (const f of fields) {
+      const v = a[f];
+      if (v != null && v !== '') acc[f].push(Number(v));
+    }
+  }
+  const out = {};
+  let any = false;
+  for (const f of fields) {
+    const arr = acc[f];
+    out[f] = arr.length ? Math.round((arr.reduce((s, x) => s + x, 0) / arr.length) * 10000) / 10000 : null;
+    if (out[f] != null) any = true;
+  }
+  return any ? out : null;
+};
+
+const fmtMetric = (v, digits = 3) => {
+  if (v == null || Number.isNaN(Number(v))) return '—';
+  return Number(v).toFixed(digits);
+};
+
 const KPI_DEFINITIONS = {
   global_score: {
     title: 'Global Score',
@@ -54,6 +157,26 @@ const KPI_DEFINITIONS = {
   tremor_grade: {
     title: 'Tremor',
     short: 'Penalizes high-frequency jitter or oscillatory noise.',
+  },
+  som_axis_rmse: {
+    title: 'Axis-wise Shape Error',
+    short: 'Per-axis mDTW-aligned shape error (RMSE) for X, Y, and Z.',
+  },
+  rom_axis_grades: {
+    title: 'ROM Axis Grades',
+    short: 'ROM score split by X, Y, and Z axis to identify directional deficits.',
+  },
+  velocity_rmse: {
+    title: 'Velocity RMSE',
+    short: 'Timing-profile mismatch between patient and reference velocity curves.',
+  },
+  peak_velocity: {
+    title: 'Peak Velocity',
+    short: 'Maximum speed reached by reference vs patient movement profile.',
+  },
+  mean_velocity: {
+    title: 'Mean Velocity',
+    short: 'Average speed across the movement for reference vs patient.',
   },
 };
 
@@ -187,6 +310,16 @@ export default function ProgressTable({
   });
   const [isHoveringInfoCard, setIsHoveringInfoCard] = useState(false);
   const hoverCloseTimeoutRef = useRef(null);
+  /** rowId -> active breakdown key ('som_grade'|'rom_grade'|'tempo_control_grade'|null) */
+  const [activeKpiBreakdownByRow, setActiveKpiBreakdownByRow] = useState({});
+
+  const toggleKpiBreakdown = useCallback((rowId, kpiKey, event) => {
+    if (event) event.stopPropagation();
+    setActiveKpiBreakdownByRow((prev) => ({
+      ...prev,
+      [rowId]: prev[rowId] === kpiKey ? null : kpiKey,
+    }));
+  }, []);
 
   const analysisResults = analyses.length ? analyses : legacyAnalysisResults;
   const exerciseOptions = useMemo(() => defaultExercises(analysisResults), [analysisResults]);
@@ -209,6 +342,9 @@ export default function ProgressTable({
 
   const chartData = useMemo(
     () => sortedAnalyses.map((rec, index) => ({
+      axisRmse: getAxisRmseForRecord(rec),
+      romAxis: getRomAxisGradesForRecord(rec),
+      tempoMetrics: getTempoMetricsForRecord(rec),
       // Use the same rowId logic for navigation
       id: buildRowId(rec),
       name: `S${index + 1}`,
@@ -220,6 +356,17 @@ export default function ProgressTable({
       tempo_control_grade: Number(rec.tempo_control_grade ?? 0),
       hesitation_grade: Number(rec.hesitation_grade ?? 0),
       tremor_grade: Number(rec.tremor_grade ?? 0),
+      rmse_x: Number(getAxisRmseForRecord(rec)?.X ?? NaN),
+      rmse_y: Number(getAxisRmseForRecord(rec)?.Y ?? NaN),
+      rmse_z: Number(getAxisRmseForRecord(rec)?.Z ?? NaN),
+      rom_grade_x: Number(getRomAxisGradesForRecord(rec)?.X ?? NaN),
+      rom_grade_y: Number(getRomAxisGradesForRecord(rec)?.Y ?? NaN),
+      rom_grade_z: Number(getRomAxisGradesForRecord(rec)?.Z ?? NaN),
+      pat_velocity_rmse: Number(getTempoMetricsForRecord(rec)?.pat_velocity_rmse ?? NaN),
+      ref_peak_velocity: Number(getTempoMetricsForRecord(rec)?.ref_peak_velocity ?? NaN),
+      pat_peak_velocity: Number(getTempoMetricsForRecord(rec)?.pat_peak_velocity ?? NaN),
+      ref_mean_velocity: Number(getTempoMetricsForRecord(rec)?.ref_mean_velocity ?? NaN),
+      pat_mean_velocity: Number(getTempoMetricsForRecord(rec)?.pat_mean_velocity ?? NaN),
       original: rec,
     })),
     [sortedAnalyses]
@@ -305,6 +452,12 @@ export default function ProgressTable({
       hoverCloseTimeoutRef.current = null;
     }, 180);
   }, [isHoveringInfoCard]);
+
+  const metricHoverHandlers = useCallback((metricKey) => ({
+    onMouseEnter: (event) => showDefinitionHover(metricKey, event),
+    onMouseMove: moveDefinitionHover,
+    onMouseLeave: hideDefinitionHover,
+  }), [showDefinitionHover, moveDefinitionHover, hideDefinitionHover]);
 
   useEffect(() => {
     return () => {
@@ -512,21 +665,114 @@ export default function ProgressTable({
                                   <div className="kpi-cards">
                                     {KPI_KEYS.map((kpi) => {
                                       const value = Number(rec[kpi.key] ?? 0);
+                                      const expandable = KPI_EXPANDABLE.has(kpi.key);
+                                      const open = expandable && activeKpiBreakdownByRow[rowId] === kpi.key;
+                                      const axisRmse = getAxisRmseForRecord(rec);
+                                      const romAxisGrades = getRomAxisGradesForRecord(rec);
+                                      const tempoMetrics = getTempoMetricsForRecord(rec);
+
                                       return (
                                         <div
                                           key={kpi.key}
-                                          className="kpi-card score-explainable"
+                                          className={`kpi-card score-explainable${expandable ? ' kpi-card--expandable' : ''}${open ? ' kpi-card--active' : ''}`}
                                           onMouseEnter={(event) => showDefinitionHover(kpi.key, event)}
                                           onMouseMove={moveDefinitionHover}
                                           onMouseLeave={hideDefinitionHover}
                                         >
-                                          <div className="kpi-label">{kpi.label}</div>
-                                          <div className="kpi-score" style={{ color: scoreColor(value) }}>{value.toFixed(1)}</div>
+                                          {expandable ? (
+                                            <button
+                                              type="button"
+                                              className="kpi-card-main"
+                                              onClick={(e) => toggleKpiBreakdown(rowId, kpi.key, e)}
+                                              aria-expanded={!!open}
+                                            >
+                                              <div className="kpi-label-row">
+                                                <span className="kpi-label">{kpi.label}</span>
+                                                <ChevronDown size={16} className={`kpi-chevron ${open ? 'kpi-chevron--open' : ''}`} aria-hidden />
+                                              </div>
+                                              <div className="kpi-score" style={{ color: scoreColor(value) }}>{value.toFixed(1)}</div>
+                                            </button>
+                                          ) : (
+                                            <div className="kpi-card-main kpi-card-main--static">
+                                              <div className="kpi-label-row">
+                                                <span className="kpi-label">{kpi.label}</span>
+                                              </div>
+                                              <div className="kpi-score" style={{ color: scoreColor(value) }}>{value.toFixed(1)}</div>
+                                            </div>
+                                          )}
                                         </div>
                                       );
                                     })}
                                   </div>
                                 </div>
+
+                                {activeKpiBreakdownByRow[rowId] && (
+                                  <div className="kpi-breakdown-panel">
+                                    {activeKpiBreakdownByRow[rowId] === 'som_grade' && (
+                                      <>
+                                        <div className="kpi-breakdown-title">SoM Breakdown: Axis-wise shape error (m)</div>
+                                        {getAxisRmseForRecord(rec) ? (
+                                          <ul className="kpi-breakdown-list">
+                                            {axisKeys.map((axis) => (
+                                              <li key={axis} className="kpi-breakdown-interactive" {...metricHoverHandlers('som_axis_rmse')}>
+                                                <span>{axis}</span>
+                                                <span>{fmtMetric(getAxisRmseForRecord(rec)[axis], 3)}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        ) : (
+                                          <p className="kpi-breakdown-empty">No axis RMSE data for this session.</p>
+                                        )}
+                                      </>
+                                    )}
+
+                                    {activeKpiBreakdownByRow[rowId] === 'rom_grade' && (
+                                      <>
+                                        <div className="kpi-breakdown-title">ROM Breakdown: Axis grades (0-10)</div>
+                                        {getRomAxisGradesForRecord(rec) ? (
+                                          <ul className="kpi-breakdown-list">
+                                            {axisKeys.map((axis) => (
+                                              <li key={axis} className="kpi-breakdown-interactive" {...metricHoverHandlers('rom_axis_grades')}>
+                                                <span>{axis}</span>
+                                                <span>{getRomAxisGradesForRecord(rec)[axis] != null ? Number(getRomAxisGradesForRecord(rec)[axis]).toFixed(1) : '—'}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        ) : (
+                                          <p className="kpi-breakdown-empty">No per-axis ROM grades for this session.</p>
+                                        )}
+                                      </>
+                                    )}
+
+                                    {activeKpiBreakdownByRow[rowId] === 'tempo_control_grade' && (
+                                      <>
+                                        <div className="kpi-breakdown-title">Tempo Breakdown: Velocity profile metrics</div>
+                                        {getTempoMetricsForRecord(rec) ? (
+                                          <ul className="kpi-breakdown-list kpi-breakdown-list--stacked">
+                                            <li>
+                                              <span className="kpi-breakdown-interactive-inline" {...metricHoverHandlers('velocity_rmse')}>Velocity RMSE</span>
+                                              <span>{fmtMetric(getTempoMetricsForRecord(rec).pat_velocity_rmse, 4)}</span>
+                                            </li>
+                                            <li>
+                                              <span className="kpi-breakdown-interactive-inline" {...metricHoverHandlers('peak_velocity')}>Peak velocity (ref / patient)</span>
+                                              <span>
+                                                {fmtMetric(getTempoMetricsForRecord(rec).ref_peak_velocity, 4)} / {fmtMetric(getTempoMetricsForRecord(rec).pat_peak_velocity, 4)}
+                                              </span>
+                                            </li>
+                                            <li>
+                                              <span className="kpi-breakdown-interactive-inline" {...metricHoverHandlers('mean_velocity')}>Mean velocity (ref / patient)</span>
+                                              <span>
+                                                {fmtMetric(getTempoMetricsForRecord(rec).ref_mean_velocity, 4)} / {fmtMetric(getTempoMetricsForRecord(rec).pat_mean_velocity, 4)}
+                                              </span>
+                                            </li>
+                                          </ul>
+                                        ) : (
+                                          <p className="kpi-breakdown-empty">No velocity metrics for this session.</p>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
 
                                 <div className="detail-actions">
                                   <button className="btn-secondary" onClick={() => handleToggleDetails(rowId)}>
@@ -696,6 +942,56 @@ export default function ProgressTable({
                         name={kpi.label}
                       />
                     ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="chart-card">
+                <div className="chart-card-title">Axis-wise Shape Error Trend (RMSE)</div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={chartData} margin={{ top: 20, right: 24, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#222" strokeDasharray="3 3" />
+                    <XAxis dataKey="name" stroke="#cbd5e1" />
+                    <YAxis stroke="#cbd5e1" />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f1419', borderColor: '#333' }} />
+                    <Legend wrapperStyle={{ color: '#cbd5e1' }} />
+                    <Line type="monotone" dataKey="rmse_x" stroke="#38bdf8" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="RMSE X" connectNulls />
+                    <Line type="monotone" dataKey="rmse_y" stroke="#34d399" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="RMSE Y" connectNulls />
+                    <Line type="monotone" dataKey="rmse_z" stroke="#f59e0b" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="RMSE Z" connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="chart-card">
+                <div className="chart-card-title">ROM Axis Grade Trend</div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={chartData} margin={{ top: 20, right: 24, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#222" strokeDasharray="3 3" />
+                    <XAxis dataKey="name" stroke="#cbd5e1" />
+                    <YAxis domain={[0, 10]} stroke="#cbd5e1" />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f1419', borderColor: '#333' }} />
+                    <Legend wrapperStyle={{ color: '#cbd5e1' }} />
+                    <Line type="monotone" dataKey="rom_grade_x" stroke="#22d3ee" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="ROM X" connectNulls />
+                    <Line type="monotone" dataKey="rom_grade_y" stroke="#22c55e" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="ROM Y" connectNulls />
+                    <Line type="monotone" dataKey="rom_grade_z" stroke="#eab308" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="ROM Z" connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="chart-card">
+                <div className="chart-card-title">Velocity Clinical Metrics Trend</div>
+                <ResponsiveContainer width="100%" height={340}>
+                  <LineChart data={chartData} margin={{ top: 20, right: 24, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#222" strokeDasharray="3 3" />
+                    <XAxis dataKey="name" stroke="#cbd5e1" />
+                    <YAxis stroke="#cbd5e1" />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f1419', borderColor: '#333' }} />
+                    <Legend wrapperStyle={{ color: '#cbd5e1' }} />
+                    <Line type="monotone" dataKey="pat_velocity_rmse" stroke="#f97316" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="Velocity RMSE" connectNulls />
+                    <Line type="monotone" dataKey="ref_peak_velocity" stroke="#14b8a6" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="Peak Velocity (Ref)" connectNulls />
+                    <Line type="monotone" dataKey="pat_peak_velocity" stroke="#06b6d4" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="Peak Velocity (Patient)" connectNulls />
+                    <Line type="monotone" dataKey="ref_mean_velocity" stroke="#8b5cf6" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="Mean Velocity (Ref)" connectNulls />
+                    <Line type="monotone" dataKey="pat_mean_velocity" stroke="#a855f7" strokeWidth={2} isAnimationActive={false} dot={renderChartDot} activeDot={{ r: 7 }} name="Mean Velocity (Patient)" connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

@@ -81,6 +81,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
   // Saving
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
+  const [activeSessionKpiBreakdown, setActiveSessionKpiBreakdown] = useState(null);
 
   // Gamified session flag
   const [isGamified, setIsGamified]   = useState(false);
@@ -181,6 +182,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
       if (res.error) throw new Error(res.error);
       console.log("Pipeline result:", res);
       setResult(res);
+      setActiveSessionKpiBreakdown(null);
       setStep(STEP.RESULTS);
     } catch (e) {
       console.error("Analysis error:", e);
@@ -236,6 +238,15 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
         // Plots
         session_attempts_plot_b64: d(result.session_attempts_plot_b64, ""),
         global_report_plot_b64:    d(result.global_report_plot_b64, ""),
+
+        // Therapist detail metrics (session-level aggregates)
+        axis_rmse:           d(result.axis_rmse, null),
+        rom_axis_grades:     d(result.rom_axis_grades, null),
+        ref_peak_velocity:   d(result.ref_peak_velocity, null),
+        pat_peak_velocity:   d(result.pat_peak_velocity, null),
+        ref_mean_velocity:   d(result.ref_mean_velocity, null),
+        pat_mean_velocity:   d(result.pat_mean_velocity, null),
+        pat_velocity_rmse:   d(result.pat_velocity_rmse, null),
       });
       setSaved(true);
       setTimeout(() => onSaved?.(), 1500);
@@ -490,6 +501,45 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
     const r = result;
     const sc = (s) => { const n = Number(s); return n >= 7 ? '#00e5c3' : n >= 4 ? '#f39c12' : '#ff4b6e'; };
     const sl = (s) => { const n = Number(s); return n >= 7 ? 'Good' : n >= 4 ? 'Moderate' : 'Poor'; };
+    const attempts = Array.isArray(r.per_attempt_metrics) ? r.per_attempt_metrics : [];
+
+    const avgAxisTriplet = (rows, field) => {
+      const sums = { X: 0, Y: 0, Z: 0 };
+      const counts = { X: 0, Y: 0, Z: 0 };
+      rows.forEach((row) => {
+        const block = row?.[field];
+        if (!block) return;
+        ["X", "Y", "Z"].forEach((axis) => {
+          const val = block[axis];
+          if (val != null && !Number.isNaN(Number(val))) {
+            sums[axis] += Number(val);
+            counts[axis] += 1;
+          }
+        });
+      });
+      const out = {};
+      let found = false;
+      ["X", "Y", "Z"].forEach((axis) => {
+        out[axis] = counts[axis] ? sums[axis] / counts[axis] : null;
+        if (out[axis] != null) found = true;
+      });
+      return found ? out : null;
+    };
+
+    const avgScalar = (rows, field) => {
+      const vals = rows.map((row) => row?.[field]).filter((v) => v != null && !Number.isNaN(Number(v))).map(Number);
+      if (!vals.length) return null;
+      return vals.reduce((s, v) => s + v, 0) / vals.length;
+    };
+
+    const axisRmse = r.axis_rmse || avgAxisTriplet(attempts, "axis_rmse");
+    const romAxisGrades = r.rom_axis_grades || avgAxisTriplet(attempts, "rom_axis_grades");
+    const patVelocityRmse = r.pat_velocity_rmse ?? avgScalar(attempts, "pat_velocity_rmse");
+    const refPeakVelocity = r.ref_peak_velocity ?? avgScalar(attempts, "ref_peak_velocity");
+    const patPeakVelocity = r.pat_peak_velocity ?? avgScalar(attempts, "pat_peak_velocity");
+    const refMeanVelocity = r.ref_mean_velocity ?? avgScalar(attempts, "ref_mean_velocity");
+    const patMeanVelocity = r.pat_mean_velocity ?? avgScalar(attempts, "pat_mean_velocity");
+    const fmt = (v, digits = 3) => (v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(digits));
 
     const SESSION_SCORES = [
       { key: 'dtw_score',           label: 'DTW' },
@@ -499,6 +549,7 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
       { key: 'hesitation_grade',    label: 'Hesitation' },
       { key: 'tremor_grade',        label: 'Tremor' },
     ];
+    const EXPANDABLE = new Set(['som_grade', 'rom_grade', 'tempo_control_grade']);
 
     return (
       <div className="pipeline-view">
@@ -529,23 +580,75 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
           {/* ── Session-Level Score Blocks ── */}
           <div style={{ marginBottom: '24px' }}>
             <h2 style={{ marginBottom: '14px' }}>Session Scores — averaged across all attempts (out of 10)</h2>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="session-kpi-grid">
               {SESSION_SCORES.map(({ key, label }) => {
                 const val = r[key] ?? 0;
+                const expandable = EXPANDABLE.has(key);
+                const open = expandable && activeSessionKpiBreakdown === key;
                 return (
-                  <div key={key} className="result-card" style={{ flex: '1 1 110px', textAlign: 'center', padding: '18px 10px' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>
-                      {label}
-                    </div>
-                    <div style={{ fontSize: '30px', fontWeight: '800', color: sc(val), lineHeight: 1 }}>
-                      {Number(val).toFixed(1)}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>/10</div>
-                    <div style={{ fontSize: '11px', marginTop: '6px', color: sc(val) }}>{sl(val)}</div>
+                  <div key={key} className={`result-card session-kpi-card ${open ? 'session-kpi-card--active' : ''}`}>
+                    {expandable ? (
+                      <button
+                        type="button"
+                        className="session-kpi-main"
+                        onClick={() => setActiveSessionKpiBreakdown((prev) => (prev === key ? null : key))}
+                        aria-expanded={open}
+                      >
+                        <div className="session-kpi-label-row">
+                          <span className="session-kpi-label">{label}</span>
+                          <span className={`session-kpi-chevron ${open ? 'session-kpi-chevron--open' : ''}`}>▼</span>
+                        </div>
+                        <div className="session-kpi-value" style={{ color: sc(val) }}>
+                          {Number(val).toFixed(1)}
+                        </div>
+                        <div className="session-kpi-scale">/10</div>
+                        <div className="session-kpi-band" style={{ color: sc(val) }}>{sl(val)}</div>
+                      </button>
+                    ) : (
+                      <div className="session-kpi-main session-kpi-main--static">
+                        <div className="session-kpi-label-row">
+                          <span className="session-kpi-label">{label}</span>
+                        </div>
+                        <div className="session-kpi-value" style={{ color: sc(val) }}>
+                          {Number(val).toFixed(1)}
+                        </div>
+                        <div className="session-kpi-scale">/10</div>
+                        <div className="session-kpi-band" style={{ color: sc(val) }}>{sl(val)}</div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
+
+            {activeSessionKpiBreakdown && (
+              <div className="session-kpi-breakdown-panel">
+                {activeSessionKpiBreakdown === 'som_grade' && (
+                  <>
+                    <div className="clinical-title">SoM Breakdown — Axis-wise shape error (RMSE)</div>
+                    <div className="clinical-row"><span>X</span><strong>{fmt(axisRmse?.X, 3)}</strong></div>
+                    <div className="clinical-row"><span>Y</span><strong>{fmt(axisRmse?.Y, 3)}</strong></div>
+                    <div className="clinical-row"><span>Z</span><strong>{fmt(axisRmse?.Z, 3)}</strong></div>
+                  </>
+                )}
+                {activeSessionKpiBreakdown === 'rom_grade' && (
+                  <>
+                    <div className="clinical-title">ROM Breakdown — Axis grades (0-10)</div>
+                    <div className="clinical-row"><span>X</span><strong>{fmt(romAxisGrades?.X, 1)}</strong></div>
+                    <div className="clinical-row"><span>Y</span><strong>{fmt(romAxisGrades?.Y, 1)}</strong></div>
+                    <div className="clinical-row"><span>Z</span><strong>{fmt(romAxisGrades?.Z, 1)}</strong></div>
+                  </>
+                )}
+                {activeSessionKpiBreakdown === 'tempo_control_grade' && (
+                  <>
+                    <div className="clinical-title">Tempo Breakdown — Velocity profile</div>
+                    <div className="clinical-row"><span>Velocity RMSE</span><strong>{fmt(patVelocityRmse, 4)}</strong></div>
+                    <div className="clinical-row"><span>Peak velocity (ref/patient)</span><strong>{fmt(refPeakVelocity, 4)} / {fmt(patPeakVelocity, 4)}</strong></div>
+                    <div className="clinical-row"><span>Mean velocity (ref/patient)</span><strong>{fmt(refMeanVelocity, 4)} / {fmt(patMeanVelocity, 4)}</strong></div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Per-Attempt Global Scores ── */}

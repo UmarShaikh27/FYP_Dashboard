@@ -386,6 +386,10 @@ def run_multi_attempt_analysis(patient_file, template_file, exercise_type="eight
             # Debug: Log what we got back
             print(f"[DEBUG] Attempt {attempt_num} result keys: {list(attempt_result.keys())}")
             
+            sparc_block = attempt_result.get("sparc") or {}
+            sparc_ref = sparc_block.get("reference") or {}
+            sparc_pat = sparc_block.get("patient") or {}
+
             # Extract all fields directly from compute_score return (all out of 10)
             attempt_score = {
                 "attempt_num":        attempt_num,
@@ -398,6 +402,13 @@ def run_multi_attempt_analysis(patient_file, template_file, exercise_type="eight
                 "tremor_grade":       attempt_result.get("tremor_grade", 0),
                 "global_rmse":        attempt_result.get("global_rmse", 0),
                 "rom_ratio_avg":      attempt_result.get("rom_ratio_avg", 0),
+                "axis_rmse":          attempt_result.get("axis_rmse") or {},
+                "rom_axis_grades":    attempt_result.get("rom_axis_grades") or {},
+                "ref_peak_velocity":  sparc_ref.get("Peak_Velocity"),
+                "pat_peak_velocity":  sparc_pat.get("Peak_Velocity"),
+                "ref_mean_velocity":  sparc_ref.get("Mean_Velocity"),
+                "pat_mean_velocity":  sparc_pat.get("Mean_Velocity"),
+                "pat_velocity_rmse":  sparc_pat.get("Velocity_RMSE"),
                 "plot_path":          attempt_result.get("saved", {}).get("therapist_view_png"),
                 "patient_view_path":  attempt_result.get("saved", {}).get("patient_view_png"),
             }
@@ -421,6 +432,39 @@ def run_multi_attempt_analysis(patient_file, template_file, exercise_type="eight
             "hesitation_grade":     avg_field("hesitation_grade"),
             "tremor_grade":         avg_field("tremor_grade"),
         }
+
+        def _avg_nested_axis(details, path_key, subkeys=("X", "Y", "Z")):
+            out = {}
+            for k in subkeys:
+                vals = []
+                for a in details:
+                    block = a.get(path_key) or {}
+                    v = block.get(k)
+                    if v is not None:
+                        vals.append(float(v))
+                out[k] = round(float(np.mean(vals)), 4) if vals else None
+            return out
+
+        session_axis_rmse = _avg_nested_axis(per_attempt_details, "axis_rmse")
+        session_rom_axis_grades = {}
+        for k in ("X", "Y", "Z"):
+            vals = []
+            for a in per_attempt_details:
+                block = a.get("rom_axis_grades") or {}
+                v = block.get(k)
+                if v is not None:
+                    vals.append(float(v))
+            session_rom_axis_grades[k] = int(round(float(np.mean(vals)))) if vals else None
+
+        def _avg_optional_scalar(field):
+            vals = [a[field] for a in per_attempt_details if a.get(field) is not None]
+            return round(float(np.mean(vals)), 4) if vals else None
+
+        session_ref_peak = _avg_optional_scalar("ref_peak_velocity")
+        session_pat_peak = _avg_optional_scalar("pat_peak_velocity")
+        session_ref_mean = _avg_optional_scalar("ref_mean_velocity")
+        session_pat_mean = _avg_optional_scalar("pat_mean_velocity")
+        session_pat_vel_rmse = _avg_optional_scalar("pat_velocity_rmse")
 
         best_score  = max(per_attempt_scores)
         worst_score = min(per_attempt_scores)
@@ -465,6 +509,14 @@ def run_multi_attempt_analysis(patient_file, template_file, exercise_type="eight
             "tempo_control_grade":      session_scores["tempo_control_grade"],
             "hesitation_grade":         session_scores["hesitation_grade"],
             "tremor_grade":             session_scores["tremor_grade"],
+
+            "axis_rmse":                session_axis_rmse,
+            "rom_axis_grades":          session_rom_axis_grades,
+            "ref_peak_velocity":        session_ref_peak,
+            "pat_peak_velocity":        session_pat_peak,
+            "ref_mean_velocity":        session_ref_mean,
+            "pat_mean_velocity":        session_pat_mean,
+            "pat_velocity_rmse":        session_pat_vel_rmse,
 
             # Attempt summary
             "num_attempts":             num_attempts,

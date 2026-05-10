@@ -9,6 +9,10 @@ const KPI_DETAILS = [
     how:
       'The pipeline mean-centers both trajectories, aligns them with constrained mDTW (Sakoe-Chiba), computes global RMSE along the optimal warping path, then maps RMSE to a 0-10 grade using calibrated thresholds.',
     formula: 'SoM = shape grade from global RMSE(mDTW-aligned trajectory error)',
+    subMetrics: [
+      'Axis-wise shape error (RMSE X/Y/Z): per-axis mDTW-aligned trajectory error.',
+      'Largest axis RMSE helps localize directional mismatch (e.g., depth control vs horizontal control).',
+    ],
   },
   {
     key: 'rom',
@@ -18,6 +22,10 @@ const KPI_DETAILS = [
     how:
       'For each axis, ratio = peak-to-peak(patient) / peak-to-peak(reference). Each axis ratio is converted to a grade using rule-based thresholds, then averaged to produce the final ROM grade.',
     formula: 'ROM = mean(grade_x, grade_y, grade_z), where grade_i is thresholded from ratio_i',
+    subMetrics: [
+      'ROM axis grades (X/Y/Z): each axis receives an independent grade before aggregation.',
+      'Axis-level grades reveal directional ROM deficits that can be masked in the single ROM grade.',
+    ],
   },
   {
     key: 'tempo',
@@ -27,6 +35,11 @@ const KPI_DETAILS = [
     how:
       'The patient speed profile is compared with the reference speed profile (after resampling), velocity RMSE is computed, and this RMSE is mapped to a 0-10 grade using threshold bands.',
     formula: 'Tempo Control = grade(velocity RMSE between reference and patient speed profiles)',
+    subMetrics: [
+      'Velocity RMSE: core mismatch metric between patient and reference velocity profiles.',
+      'Peak velocity (reference vs patient): compares maximum speed capability and control.',
+      'Mean velocity (reference vs patient): compares average pace over the movement window.',
+    ],
   },
   {
     key: 'hesitation',
@@ -84,6 +97,20 @@ export default function ScoringMethodology() {
             <div className="score-hover-copy" style={{ marginBottom: 0 }}>
               <strong>Formula:</strong> {kpi.formula}
             </div>
+            {Array.isArray(kpi.subMetrics) && kpi.subMetrics.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <p style={{ color: '#cbd5e1', margin: '0 0 6px 0', fontSize: 13 }}>
+                  <strong>Detailed metrics under this KPI:</strong>
+                </p>
+                <ul style={{ margin: 0, paddingLeft: 18, color: '#cbd5e1' }}>
+                  {kpi.subMetrics.map((item) => (
+                    <li key={item} style={{ marginBottom: 4, fontSize: 13 }}>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ))}
       </div>
