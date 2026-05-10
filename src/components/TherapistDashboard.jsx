@@ -6,6 +6,7 @@ import ExerciseSession from "./ExerciseSession";
 import ProgressTable from "./ProgressTable";
 import PipelineRunner from "./PipelineRunner";
 import ScoringMethodology from "./ScoringMethodology";
+import BackendStatus from "./BackendStatus";
 
 export default function TherapistDashboard({ user, onLogout }) {
   const [patients, setPatients]               = useState([]);
@@ -72,6 +73,7 @@ export default function TherapistDashboard({ user, onLogout }) {
           <button className={view === "records"  ? "active" : ""} onClick={() => setView("records")}>📊 Records</button>
           <button className={view === "scoring"  ? "active" : ""} onClick={() => setView("scoring")}>🧠 Scoring Methodology</button>
         </nav>
+        <BackendStatus />
         <div className="sidebar-footer">
           <p className="sidebar-user">Dr. {user.name}</p>
           <button className="btn-logout" onClick={handleLogout}>Sign Out</button>

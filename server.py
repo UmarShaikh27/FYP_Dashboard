@@ -936,5 +936,20 @@ if __name__ == "__main__":
     print(f"Templates folder: {TEMPLATES_FOLDER}")
     print(f"Scoring weights:  {SCORING_WEIGHTS}")
     print(f"Capture module:   capture.py (in-process, gesture_enabled=False)")
-    print("=" * 60)
-    app.run(host="127.0.0.1", port=5000, debug=True)
+
+    # ── SSL detection (for cloud frontend ↔ local backend) ─────────────
+    cert_dir  = os.path.join(ROOT_DIR, "certs")
+    cert_file = os.path.join(cert_dir, "localhost.pem")
+    key_file  = os.path.join(cert_dir, "localhost-key.pem")
+
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        print(f"SSL certs found  → serving HTTPS on https://localhost:5000")
+        print("=" * 60)
+        app.run(host="127.0.0.1", port=5000, debug=False,
+                ssl_context=(cert_file, key_file))
+    else:
+        print(f"No SSL certs     → serving HTTP  on http://localhost:5000")
+        print("  (Run install.bat to generate certs for cloud dashboard)")
+        print("=" * 60)
+        app.run(host="127.0.0.1", port=5000, debug=True)
+

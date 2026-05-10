@@ -1,0 +1,11 @@
+flask
+flask-cors
+numpy
+pandas
+tslearn
+openpyxl
+matplotlib
+mediapipe
+opencv-python
+pyrealsense2
+scipy
