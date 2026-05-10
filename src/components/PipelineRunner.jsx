@@ -1,7 +1,8 @@
 // components/PipelineRunner.jsx
 // Full pipeline: server health check → template selection → mocap recording
 // → DTW analysis → save to Firestore → show results
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { ChevronDown } from "lucide-react";
 import {
   checkServerHealth,
   listTemplates,
@@ -12,6 +13,7 @@ import {
   runPipelineAnalysis,
 } from "../api/localServer";
 import { saveAnalysisResult } from "../firebase/db";
+import "./ProgressTable.css";
 
 // ── Step constants ────────────────────────────────────────────────────────────
 const STEP = {
@@ -20,36 +22,7 @@ const STEP = {
   RECORDING:    2,
   ANALYZING:    3,
   RESULTS:      4,
-};// ── Circular score ring ───────────────────────────────────────────────────────
-function ScoreRing({ score, max = 10 }) {
-  const r = 54, circ = 2 * Math.PI * r;
-  const offset = circ - (Math.max(0, Math.min(score, max)) / max) * circ;
-  
-  const scoreColor = (s) => s >= 7 ? '#00e5c3' : s >= 4 ? '#f39c12' : '#ff4b6e';
-  const color = scoreColor(score);
-  
-  return (
-    <div className="score-ring-wrap" style={{ display: 'flex', justifyContent: 'center', margin: '20px 0' }}>
-      <div style={{ position: 'relative', width: '140px', height: '140px' }}>
-        <svg width="140" height="140" viewBox="0 0 140 140">
-          <circle cx="70" cy="70" r={r} fill="none" stroke="#232a3a" strokeWidth="10" />
-          <circle
-            cx="70" cy="70" r={r} fill="none"
-            stroke={color} strokeWidth="10"
-            strokeDasharray={circ} strokeDashoffset={offset}
-            strokeLinecap="round"
-            transform="rotate(-90 70 70)"
-            style={{ transition: "stroke-dashoffset 1s ease" }}
-          />
-        </svg>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ color, fontSize: '32px', fontWeight: 'bold' }}>{Number(score).toFixed(1)}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>/{max}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+};
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PipelineRunner({ patient, patients, therapistId, onSaved }) {
@@ -499,57 +472,72 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
     }
 
     const r = result;
-    const sc = (s) => { const n = Number(s); return n >= 7 ? '#00e5c3' : n >= 4 ? '#f39c12' : '#ff4b6e'; };
-    const sl = (s) => { const n = Number(s); return n >= 7 ? 'Good' : n >= 4 ? 'Moderate' : 'Poor'; };
+    const scoreColor = (v) => { const n = Number(v); return n >= 7 ? '#00e5c3' : n >= 4 ? '#f39c12' : '#ff4b6e'; };
     const attempts = Array.isArray(r.per_attempt_metrics) ? r.per_attempt_metrics : [];
 
-    const avgAxisTriplet = (rows, field) => {
-      const sums = { X: 0, Y: 0, Z: 0 };
-      const counts = { X: 0, Y: 0, Z: 0 };
-      rows.forEach((row) => {
-        const block = row?.[field];
-        if (!block) return;
-        ["X", "Y", "Z"].forEach((axis) => {
-          const val = block[axis];
-          if (val != null && !Number.isNaN(Number(val))) {
-            sums[axis] += Number(val);
-            counts[axis] += 1;
-          }
-        });
-      });
-      const out = {};
-      let found = false;
-      ["X", "Y", "Z"].forEach((axis) => {
-        out[axis] = counts[axis] ? sums[axis] / counts[axis] : null;
-        if (out[axis] != null) found = true;
-      });
-      return found ? out : null;
+    // ── Helpers matching ProgressTable ────────────────────────────────────
+    const axisKeys = ['X', 'Y', 'Z'];
+
+    const pickAxisTriplet = (block) => {
+      if (!block || typeof block !== 'object') return null;
+      const out = {}; let any = false;
+      for (const k of axisKeys) {
+        const v = block[k] ?? block[k.toLowerCase()];
+        if (v != null && v !== '') { out[k] = Number(v); any = true; } else { out[k] = null; }
+      }
+      return any ? out : null;
+    };
+
+    const avgTriplet = (rows, field) => {
+      const sums = { X: 0, Y: 0, Z: 0 }, counts = { X: 0, Y: 0, Z: 0 };
+      for (const row of rows) {
+        const b = row?.[field]; if (!b) continue;
+        for (const k of axisKeys) { const v = b[k]; if (v != null && !Number.isNaN(Number(v))) { sums[k] += Number(v); counts[k]++; } }
+      }
+      const out = {}; let any = false;
+      for (const k of axisKeys) { out[k] = counts[k] ? Math.round((sums[k] / counts[k]) * 10000) / 10000 : null; if (out[k] != null) any = true; }
+      return any ? out : null;
     };
 
     const avgScalar = (rows, field) => {
-      const vals = rows.map((row) => row?.[field]).filter((v) => v != null && !Number.isNaN(Number(v))).map(Number);
-      if (!vals.length) return null;
-      return vals.reduce((s, v) => s + v, 0) / vals.length;
+      const vals = rows.map(row => row?.[field]).filter(v => v != null && !Number.isNaN(Number(v))).map(Number);
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
     };
 
-    const axisRmse = r.axis_rmse || avgAxisTriplet(attempts, "axis_rmse");
-    const romAxisGrades = r.rom_axis_grades || avgAxisTriplet(attempts, "rom_axis_grades");
-    const patVelocityRmse = r.pat_velocity_rmse ?? avgScalar(attempts, "pat_velocity_rmse");
-    const refPeakVelocity = r.ref_peak_velocity ?? avgScalar(attempts, "ref_peak_velocity");
-    const patPeakVelocity = r.pat_peak_velocity ?? avgScalar(attempts, "pat_peak_velocity");
-    const refMeanVelocity = r.ref_mean_velocity ?? avgScalar(attempts, "ref_mean_velocity");
-    const patMeanVelocity = r.pat_mean_velocity ?? avgScalar(attempts, "pat_mean_velocity");
-    const fmt = (v, digits = 3) => (v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(digits));
+    const axisRmse      = pickAxisTriplet(r.axis_rmse)      || avgTriplet(attempts, 'axis_rmse');
+    const romAxisGrades = pickAxisTriplet(r.rom_axis_grades) || avgTriplet(attempts, 'rom_axis_grades');
+    const tempoMetrics  = (() => {
+      const direct = { pat_velocity_rmse: r.pat_velocity_rmse, ref_peak_velocity: r.ref_peak_velocity, pat_peak_velocity: r.pat_peak_velocity, ref_mean_velocity: r.ref_mean_velocity, pat_mean_velocity: r.pat_mean_velocity };
+      if (Object.values(direct).some(v => v != null)) return { pat_velocity_rmse: direct.pat_velocity_rmse != null ? Number(direct.pat_velocity_rmse) : null, ref_peak_velocity: direct.ref_peak_velocity != null ? Number(direct.ref_peak_velocity) : null, pat_peak_velocity: direct.pat_peak_velocity != null ? Number(direct.pat_peak_velocity) : null, ref_mean_velocity: direct.ref_mean_velocity != null ? Number(direct.ref_mean_velocity) : null, pat_mean_velocity: direct.pat_mean_velocity != null ? Number(direct.pat_mean_velocity) : null };
+      const fields = ['pat_velocity_rmse','ref_peak_velocity','pat_peak_velocity','ref_mean_velocity','pat_mean_velocity'];
+      const acc = {}; for (const f of fields) acc[f] = [];
+      for (const a of attempts) { for (const f of fields) { const v = a[f]; if (v != null) acc[f].push(Number(v)); } }
+      const out = {}; let any = false;
+      for (const f of fields) { out[f] = acc[f].length ? Math.round((acc[f].reduce((s, x) => s + x, 0) / acc[f].length) * 10000) / 10000 : null; if (out[f] != null) any = true; }
+      return any ? out : null;
+    })();
 
-    const SESSION_SCORES = [
-      { key: 'dtw_score',           label: 'DTW' },
-      { key: 'som_grade',           label: 'SoM (Shape)' },
+    const fmt = (v, d = 3) => v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d);
+
+    const KPI_KEYS = [
+      { key: 'som_grade',           label: 'SoM' },
       { key: 'rom_grade',           label: 'ROM' },
-      { key: 'tempo_control_grade', label: 'Tempo Control' },
+      { key: 'tempo_control_grade', label: 'Tempo' },
       { key: 'hesitation_grade',    label: 'Hesitation' },
       { key: 'tremor_grade',        label: 'Tremor' },
     ];
-    const EXPANDABLE = new Set(['som_grade', 'rom_grade', 'tempo_control_grade']);
+    const KPI_EXPANDABLE = new Set(['som_grade', 'rom_grade', 'tempo_control_grade']);
+
+    const globalScore = Number(r.global_score ?? 0);
+
+    // per-attempt figures
+    const normalizeImg = (raw) => {
+      if (!raw || typeof raw !== 'string') return null;
+      const t = raw.trim();
+      return t.startsWith('data:image/') ? t : `data:image/png;base64,${t}`;
+    };
+    const plotImage = normalizeImg(r.plot_image_b64 || r.session_attempts_plot_b64);
+    const sessionPlotImage = normalizeImg(r.global_report_plot_b64 || r.session_plot_image_b64);
 
     return (
       <div className="pipeline-view">
@@ -559,153 +547,146 @@ export default function PipelineRunner({ patient, patients, therapistId, onSaved
             <p className="subtitle">{exerciseName} — {selectedPatient?.name} &nbsp;·&nbsp; {r.num_attempts || 1} attempt{r.num_attempts !== 1 ? 's' : ''}</p>
           </div>
           <div className="results-actions">
-            <button className="btn-secondary" onClick={() => { setResult(null); setStep(STEP.CONFIGURE); }}>
-              ← New Analysis
-            </button>
+            <button className="btn-secondary" onClick={() => { setResult(null); setStep(STEP.CONFIGURE); }}>← New Analysis</button>
             <button className="btn-primary" onClick={handleSave} disabled={saving || saved}>
               {saved ? '✓ Saved to Records' : saving ? 'Saving…' : '💾 Save to Patient Records'}
             </button>
           </div>
         </div>
 
+        {/* Uses the same detail-panel layout as ProgressTable expanded rows */}
         <div className="results-container">
-          
-          {/* ── Global Total Score Ring ── */}
-          <div className="result-card" style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px', textAlign: 'center' }}>
-            <h2 style={{ marginBottom: '10px' }}>Global Total Score</h2>
-            <ScoreRing score={r.global_score ?? 0} max={10} />
-            <p className="muted" style={{ marginTop: '10px' }}>Average overall performance across all attempts</p>
-          </div>
+          <div className="detail-panel">
 
-          {/* ── Session-Level Score Blocks ── */}
-          <div style={{ marginBottom: '24px' }}>
-            <h2 style={{ marginBottom: '14px' }}>Session Scores — averaged across all attempts (out of 10)</h2>
-            <div className="session-kpi-grid">
-              {SESSION_SCORES.map(({ key, label }) => {
-                const val = r[key] ?? 0;
-                const expandable = EXPANDABLE.has(key);
-                const open = expandable && activeSessionKpiBreakdown === key;
-                return (
-                  <div key={key} className={`result-card session-kpi-card ${open ? 'session-kpi-card--active' : ''}`}>
-                    {expandable ? (
-                      <button
-                        type="button"
-                        className="session-kpi-main"
-                        onClick={() => setActiveSessionKpiBreakdown((prev) => (prev === key ? null : key))}
-                        aria-expanded={open}
-                      >
-                        <div className="session-kpi-label-row">
-                          <span className="session-kpi-label">{label}</span>
-                          <span className={`session-kpi-chevron ${open ? 'session-kpi-chevron--open' : ''}`}>▼</span>
+            {/* ── Global Score + KPI Cards (mirrors detail-top) ── */}
+            <div className="detail-top">
+              <div className="score-ring-panel">
+                <div className="score-ring-label">Global Score</div>
+                <div className="global-score-value" style={{ color: scoreColor(globalScore) }}>
+                  {globalScore.toFixed(1)}
+                </div>
+              </div>
+
+              <div className="kpi-cards">
+                {KPI_KEYS.map(({ key, label }) => {
+                  const value = Number(r[key] ?? 0);
+                  const expandable = KPI_EXPANDABLE.has(key);
+                  const open = expandable && activeSessionKpiBreakdown === key;
+                  return (
+                    <div
+                      key={key}
+                      className={`kpi-card${expandable ? ' kpi-card--expandable' : ''}${open ? ' kpi-card--active' : ''}`}
+                    >
+                      {expandable ? (
+                        <button
+                          type="button"
+                          className="kpi-card-main"
+                          onClick={() => setActiveSessionKpiBreakdown(prev => prev === key ? null : key)}
+                          aria-expanded={open}
+                        >
+                          <div className="kpi-label-row">
+                            <span className="kpi-label">{label}</span>
+                            <ChevronDown size={16} className={`kpi-chevron${open ? ' kpi-chevron--open' : ''}`} aria-hidden />
+                          </div>
+                          <div className="kpi-score" style={{ color: scoreColor(value) }}>{value.toFixed(1)}</div>
+                        </button>
+                      ) : (
+                        <div className="kpi-card-main kpi-card-main--static">
+                          <div className="kpi-label-row">
+                            <span className="kpi-label">{label}</span>
+                          </div>
+                          <div className="kpi-score" style={{ color: scoreColor(value) }}>{value.toFixed(1)}</div>
                         </div>
-                        <div className="session-kpi-value" style={{ color: sc(val) }}>
-                          {Number(val).toFixed(1)}
-                        </div>
-                        <div className="session-kpi-scale">/10</div>
-                        <div className="session-kpi-band" style={{ color: sc(val) }}>{sl(val)}</div>
-                      </button>
-                    ) : (
-                      <div className="session-kpi-main session-kpi-main--static">
-                        <div className="session-kpi-label-row">
-                          <span className="session-kpi-label">{label}</span>
-                        </div>
-                        <div className="session-kpi-value" style={{ color: sc(val) }}>
-                          {Number(val).toFixed(1)}
-                        </div>
-                        <div className="session-kpi-scale">/10</div>
-                        <div className="session-kpi-band" style={{ color: sc(val) }}>{sl(val)}</div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
+            {/* ── Expandable KPI breakdown panel (mirrors kpi-breakdown-panel) ── */}
             {activeSessionKpiBreakdown && (
-              <div className="session-kpi-breakdown-panel">
+              <div className="kpi-breakdown-panel" style={{ marginBottom: 16 }}>
                 {activeSessionKpiBreakdown === 'som_grade' && (
                   <>
-                    <div className="clinical-title">SoM Breakdown — Axis-wise shape error (RMSE)</div>
-                    <div className="clinical-row"><span>X</span><strong>{fmt(axisRmse?.X, 3)}</strong></div>
-                    <div className="clinical-row"><span>Y</span><strong>{fmt(axisRmse?.Y, 3)}</strong></div>
-                    <div className="clinical-row"><span>Z</span><strong>{fmt(axisRmse?.Z, 3)}</strong></div>
+                    <div className="kpi-breakdown-title">SoM Breakdown: Axis-wise shape error (m)</div>
+                    {axisRmse ? (
+                      <ul className="kpi-breakdown-list">
+                        {axisKeys.map(axis => (
+                          <li key={axis}><span>{axis}</span><span>{fmt(axisRmse[axis], 3)}</span></li>
+                        ))}
+                      </ul>
+                    ) : <p className="kpi-breakdown-empty">No axis RMSE data for this session.</p>}
                   </>
                 )}
                 {activeSessionKpiBreakdown === 'rom_grade' && (
                   <>
-                    <div className="clinical-title">ROM Breakdown — Axis grades (0-10)</div>
-                    <div className="clinical-row"><span>X</span><strong>{fmt(romAxisGrades?.X, 1)}</strong></div>
-                    <div className="clinical-row"><span>Y</span><strong>{fmt(romAxisGrades?.Y, 1)}</strong></div>
-                    <div className="clinical-row"><span>Z</span><strong>{fmt(romAxisGrades?.Z, 1)}</strong></div>
+                    <div className="kpi-breakdown-title">ROM Breakdown: Axis grades (0-10)</div>
+                    {romAxisGrades ? (
+                      <ul className="kpi-breakdown-list">
+                        {axisKeys.map(axis => (
+                          <li key={axis}><span>{axis}</span><span>{romAxisGrades[axis] != null ? Number(romAxisGrades[axis]).toFixed(1) : '—'}</span></li>
+                        ))}
+                      </ul>
+                    ) : <p className="kpi-breakdown-empty">No per-axis ROM grades for this session.</p>}
                   </>
                 )}
                 {activeSessionKpiBreakdown === 'tempo_control_grade' && (
                   <>
-                    <div className="clinical-title">Tempo Breakdown — Velocity profile</div>
-                    <div className="clinical-row"><span>Velocity RMSE</span><strong>{fmt(patVelocityRmse, 4)}</strong></div>
-                    <div className="clinical-row"><span>Peak velocity (ref/patient)</span><strong>{fmt(refPeakVelocity, 4)} / {fmt(patPeakVelocity, 4)}</strong></div>
-                    <div className="clinical-row"><span>Mean velocity (ref/patient)</span><strong>{fmt(refMeanVelocity, 4)} / {fmt(patMeanVelocity, 4)}</strong></div>
+                    <div className="kpi-breakdown-title">Tempo Breakdown: Velocity profile metrics</div>
+                    {tempoMetrics ? (
+                      <ul className="kpi-breakdown-list kpi-breakdown-list--stacked">
+                        <li><span>Velocity RMSE</span><span>{fmt(tempoMetrics.pat_velocity_rmse, 4)}</span></li>
+                        <li><span>Peak velocity (ref / patient)</span><span>{fmt(tempoMetrics.ref_peak_velocity, 4)} / {fmt(tempoMetrics.pat_peak_velocity, 4)}</span></li>
+                        <li><span>Mean velocity (ref / patient)</span><span>{fmt(tempoMetrics.ref_mean_velocity, 4)} / {fmt(tempoMetrics.pat_mean_velocity, 4)}</span></li>
+                      </ul>
+                    ) : <p className="kpi-breakdown-empty">No velocity metrics for this session.</p>}
                   </>
                 )}
               </div>
             )}
-          </div>
 
-          {/* ── Per-Attempt Global Scores ── */}
-          {r.per_attempt_scores?.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <h3 style={{ marginBottom: '12px' }}>Per-Attempt Global Scores</h3>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                {r.per_attempt_scores.map((s, idx) => (
-                  <div key={idx} className="result-card" style={{ flex: '1 1 80px', textAlign: 'center', padding: '14px 8px' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>Attempt {idx + 1}</div>
-                    <div style={{ fontSize: '26px', fontWeight: '700', color: sc(s) }}>{Number(s).toFixed(1)}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>/10</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Progression Summary ── */}
-          {r.attempt_progression && (
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}>
-              {[
-                ['Attempts',  r.num_attempts],
-                ['Avg Score', Number(r.attempt_progression.avg_score).toFixed(2)],
-                ['Best',      Number(r.attempt_progression.best_attempt).toFixed(2)],
-                ['Trend',     r.attempt_progression.trend],
-              ].map(([lbl, val]) => (
-                <div key={lbl} className="result-card" style={{ flex: '1 1 100px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lbl}</div>
-                  <div style={{ fontSize: '22px', fontWeight: '700', marginTop: '6px' }}>{val}</div>
+            {/* ── Per-attempt scores (mirrors scores-grid) ── */}
+            {r.per_attempt_scores?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div className="per-attempt-header">
+                  <h4>Per-Attempt Global Scores</h4>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Session Attempts Plot ── */}
-          {r.session_attempts_plot_b64
-            ? (
-              <div className="result-card" style={{ marginBottom: '20px' }}>
-                <h3 style={{ marginBottom: '12px' }}>Session Attempts — 3D Trajectory Overview</h3>
-                <img src={`data:image/png;base64,${r.session_attempts_plot_b64}`} alt="Session attempts plot" className="result-plot" style={{ width: '100%' }} />
+                <div className="scores-grid">
+                  {r.per_attempt_scores.map((s, idx) => (
+                    <div key={idx} className="score-card-small">
+                      <div className="score-card-label">Attempt {idx + 1}</div>
+                      <div className="score-card-value" style={{ color: scoreColor(s) }}>{Number(s).toFixed(1)}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )
-            : <p className="muted" style={{ marginBottom: '12px' }}>Session attempts plot not available.</p>
-          }
+            )}
 
-          {/* ── Global Report Plot ── */}
-          {r.global_report_plot_b64
-            ? (
-              <div className="result-card" style={{ marginBottom: '20px' }}>
-                <h3 style={{ marginBottom: '12px' }}>Global Report — Score Breakdown</h3>
-                <img src={`data:image/png;base64,${r.global_report_plot_b64}`} alt="Global report" className="result-plot" style={{ width: '100%' }} />
+            {/* ── Figures (mirrors figures-grid) ── */}
+            {(sessionPlotImage || plotImage) && (
+              <div className="per-attempt-section" style={{ marginTop: 8 }}>
+                <div className="per-attempt-header">
+                  <h4>Session Figures</h4>
+                </div>
+                <div className="figures-grid">
+                  {sessionPlotImage && (
+                    <div className="figure-card">
+                      <div className="figure-title">Global Report</div>
+                      <img src={sessionPlotImage} alt="Global report" className="figure-image" />
+                    </div>
+                  )}
+                  {plotImage && (
+                    <div className="figure-card">
+                      <div className="figure-title">3D Trajectory Comparison</div>
+                      <img src={plotImage} alt="Trajectory comparison" className="figure-image" />
+                    </div>
+                  )}
+                </div>
               </div>
-            )
-            : <p className="muted" style={{ marginBottom: '12px' }}>Global report plot not available.</p>
-          }
+            )}
 
+          </div>
         </div>
       </div>
     );
