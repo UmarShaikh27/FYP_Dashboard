@@ -353,7 +353,7 @@ class UnityBridgeCapture:
                 remaining_grace = max(0.0, GRACE_PERIOD - elapsed_grace)
 
                 if elapsed_grace - last_timer_tick >= 0.5 or last_timer_tick < 0:
-                    self._send({"type": "status", "status": "recording"}) # Force Unity into recording state for the UI
+                    self._send({"type": "status", "status": "countdown"}) # Notify Unity we are in countdown
                     self._send({
                         "type": "timer",
                         "remaining": round(remaining_grace, 1),

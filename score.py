@@ -237,6 +237,9 @@ class MovementAnalyzer:
         normal_cutoff = self.cutoff / nyq
         b, a = butter(4, normal_cutoff, btype="low", analog=False)
 
+        if len(data) <= 15:  # too short for filtfilt padlen — return unfiltered
+            return data
+
         filtered_data = np.zeros_like(data)
         for i in range(data.shape[1]):  # Iterate x, y, z
             filtered_data[:, i] = filtfilt(b, a, data[:, i])
@@ -516,36 +519,36 @@ def calculate_rom_metrics(ref_data: np.ndarray, pat_data: np.ndarray) -> Tuple[f
 
 def get_rom_grade(ratio: float) -> int:
     """
-    Notebook thresholds (simplified 0, 7-10 grade):
-    - if ratio < 0.50 or ratio > 1.50: 0
-    - if 0.95 <= ratio <= 1.05: 10
-    - if ratio < 0.95:
-        if ratio >= 0.90: 9
-        elif ratio >= 0.70: 8
+    Relaxed ROM thresholds (doubled tolerance bands):
+    - if ratio < 0.30 or ratio > 1.80: 0
+    - if 0.90 <= ratio <= 1.10: 10
+    - if ratio < 0.90:
+        if ratio >= 0.80: 9
+        elif ratio >= 0.60: 8
         else: 7
-    - if ratio > 1.05:
-        if ratio <= 1.10: 9
-        elif ratio <= 1.30: 8
+    - if ratio > 1.10:
+        if ratio <= 1.20: 9
+        elif ratio <= 1.50: 8
         else: 7
     """
-    if ratio < 0.50 or ratio > 1.50:
+    if ratio < 0.30 or ratio > 1.80:
         return 0
 
-    if 0.95 <= ratio <= 1.05:
+    if 0.90 <= ratio <= 1.10:
         return 10
 
-    if ratio < 0.95:
-        if ratio >= 0.90:
+    if ratio < 0.90:
+        if ratio >= 0.80:
             return 9
-        elif ratio >= 0.70:
+        elif ratio >= 0.60:
             return 8
         else:
             return 7
 
-    if ratio > 1.05:
-        if ratio <= 1.10:
+    if ratio > 1.10:
+        if ratio <= 1.20:
             return 9
-        elif ratio <= 1.30:
+        elif ratio <= 1.50:
             return 8
         else:
             return 7
@@ -557,68 +560,68 @@ def get_shape_grade(rmse: float, limit: float) -> int:
     """
     Map mDTW global RMSE directly to 0-10 grade based on calibration mapping.
     (Note: 'limit' argument kept for interface compatibility).
+    Thresholds doubled from original for relaxed scoring.
     """
-    if rmse <= 0.04: return 10
-    elif rmse <= 0.08: return 9
-    elif rmse <= 0.12: return 8
-    elif rmse <= 0.16: return 7
-    elif rmse <= 0.20: return 6
-    elif rmse <= 0.23: return 5
-    elif rmse <= 0.30: return 4
-    elif rmse <= 0.40: return 3
-    elif rmse <= 0.53: return 2
-    elif rmse <= 0.76: return 1
+    if rmse <= 0.08: return 10
+    elif rmse <= 0.16: return 9
+    elif rmse <= 0.24: return 8
+    elif rmse <= 0.32: return 7
+    elif rmse <= 0.40: return 6
+    elif rmse <= 0.46: return 5
+    elif rmse <= 0.60: return 4
+    elif rmse <= 0.80: return 3
+    elif rmse <= 1.06: return 2
+    elif rmse <= 1.52: return 1
     else: return 0
 
 
 def grade_tremor(pat_high: float, ref_high: float) -> int:
-    """Grade tremor from high-band SPARC difference (0-10, hardcoded mapping)."""
+    """Grade tremor from high-band SPARC difference (0-10, hardcoded mapping).
+    Thresholds tripled from original for relaxed scoring."""
     diff = abs(pat_high - ref_high)
-    if diff <= 0.04: return 10
-    elif diff <= 0.14: return 9
-    elif diff <= 0.25: return 8
-    elif diff <= 0.37: return 7
-    elif diff <= 0.52: return 6
-    elif diff <= 0.69: return 5
-    elif diff <= 0.91: return 4
-    elif diff <= 1.20: return 3
-    elif diff <= 1.65: return 2
-    elif diff <= 2.60: return 1
+    if diff <= 0.12: return 10
+    elif diff <= 0.40: return 9
+    elif diff <= 0.75: return 8
+    elif diff <= 1.10: return 7
+    elif diff <= 1.50: return 6
+    elif diff <= 2.00: return 5
+    elif diff <= 2.70: return 4
+    elif diff <= 3.50: return 3
+    elif diff <= 5.00: return 2
+    elif diff <= 8.00: return 1
     else: return 0
-    if threshold <= 0:
-        return 10.0
-    k = np.log(10) / threshold
-    return round(min(10.0, max(0.0, 10.0 * np.exp(-k * diff))), 1)
 
 
 def grade_hesitation(pat_low: float, ref_low: float) -> int:
-    """Grade hesitation from low-band SPARC difference (0-10, hardcoded mapping)."""
+    """Grade hesitation from low-band SPARC difference (0-10, hardcoded mapping).
+    Thresholds doubled from original for relaxed scoring."""
     diff = abs(pat_low - ref_low)
-    if diff <= 0.04: return 10
-    elif diff <= 0.14: return 9
-    elif diff <= 0.25: return 8
-    elif diff <= 0.37: return 7
-    elif diff <= 0.52: return 6
-    elif diff <= 0.69: return 5
-    elif diff <= 0.91: return 4
-    elif diff <= 1.20: return 3
-    elif diff <= 1.65: return 2
-    elif diff <= 2.60: return 1
+    if diff <= 0.08: return 10
+    elif diff <= 0.28: return 9
+    elif diff <= 0.50: return 8
+    elif diff <= 0.74: return 7
+    elif diff <= 1.04: return 6
+    elif diff <= 1.38: return 5
+    elif diff <= 1.82: return 4
+    elif diff <= 2.40: return 3
+    elif diff <= 3.30: return 2
+    elif diff <= 5.20: return 1
     else: return 0
 
 
 def grade_tempo_control(vel_rmse: float) -> int:
-    """Grade tempo and control purely from velocity profile RMSE (0-10, hardcoded mapping)."""
-    if vel_rmse <= 0.01: return 10
-    elif vel_rmse <= 0.04: return 9
-    elif vel_rmse <= 0.06: return 8
-    elif vel_rmse <= 0.09: return 7
-    elif vel_rmse <= 0.13: return 6
-    elif vel_rmse <= 0.17: return 5
-    elif vel_rmse <= 0.23: return 4
-    elif vel_rmse <= 0.30: return 3
-    elif vel_rmse <= 0.41: return 2
-    elif vel_rmse <= 0.65: return 1
+    """Grade tempo and control purely from velocity profile RMSE (0-10, hardcoded mapping).
+    Thresholds significantly relaxed — original scale was too strict for live capture variance."""
+    if vel_rmse <= 0.05: return 10
+    elif vel_rmse <= 0.15: return 9
+    elif vel_rmse <= 0.30: return 8
+    elif vel_rmse <= 0.50: return 7
+    elif vel_rmse <= 0.75: return 6
+    elif vel_rmse <= 1.00: return 5
+    elif vel_rmse <= 1.50: return 4
+    elif vel_rmse <= 2.00: return 3
+    elif vel_rmse <= 3.00: return 2
+    elif vel_rmse <= 5.00: return 1
     else: return 0
 
 

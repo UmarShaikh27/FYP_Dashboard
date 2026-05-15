@@ -1,92 +1,22 @@
 // src/api/localServer.js
-// Calls the Flask backend running on the therapist's local machine.
-// Auto-detects protocol: HTTPS when served from Vercel, HTTP for local dev.
+// Calls the Flask backend running on the therapist's local machine at port 5000
 
-const _proto = window.location.protocol === "https:" ? "https" : "http";
-const BASE = import.meta.env.VITE_LOCAL_BACKEND_URL || `${_proto}://localhost:5000`;
-
-// ── Connection state (reactive via listeners) ────────────────────────────
-let _backendConnected = false;
-let _listeners = [];
-
-export function isBackendConnected() {
-  return _backendConnected;
-}
-
-/** Subscribe to connection status changes. Returns unsubscribe fn. */
-export function onBackendStatusChange(cb) {
-  _listeners.push(cb);
-  cb(_backendConnected); // fire immediately with current state
-  return () => {
-    _listeners = _listeners.filter((l) => l !== cb);
-  };
-}
-
-function _setConnected(val) {
-  if (val !== _backendConnected) {
-    _backendConnected = val;
-    _listeners.forEach((cb) => cb(val));
-  }
-}
-
-// ── Core fetch helper ────────────────────────────────────────────────────
+const BASE = "http://localhost:5000";
 
 async function apiFetch(path, options = {}) {
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-    });
-    _setConnected(true);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-    return res.json();
-  } catch (err) {
-    // Network-level failures (backend unreachable)
-    if (err instanceof TypeError && err.message.includes("fetch")) {
-      _setConnected(false);
-    }
-    throw err;
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
   }
+  return res.json();
 }
-
-// ── Health check (runs on an interval) ───────────────────────────────────
 
 /** Ping the local server to check it's running */
-export const checkServerHealth = async () => {
-  try {
-    const result = await apiFetch("/health");
-    _setConnected(true);
-    return result;
-  } catch {
-    _setConnected(false);
-    throw new Error("Local backend is not reachable");
-  }
-};
-
-let _healthInterval = null;
-
-/** Start polling backend health every `ms` milliseconds (default 5 s). */
-export function startHealthPolling(ms = 5000) {
-  stopHealthPolling();
-  // Check immediately, then on interval
-  checkServerHealth().catch(() => {});
-  _healthInterval = setInterval(() => {
-    checkServerHealth().catch(() => {});
-  }, ms);
-}
-
-/** Stop the health polling interval. */
-export function stopHealthPolling() {
-  if (_healthInterval) {
-    clearInterval(_healthInterval);
-    _healthInterval = null;
-  }
-}
-
-// ── API wrappers ─────────────────────────────────────────────────────────
+export const checkServerHealth = () => apiFetch("/health");
 
 /** List template xlsx files in the templates/ folder */
 export const listTemplates = () => apiFetch("/templates");
